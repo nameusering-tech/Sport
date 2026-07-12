@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111210" />
+    <meta name="description" content="SPORTIK — персональный план домашних тренировок с умным тренером" />
+    <title>SPORTIK — персональный тренер</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="SPORTIK">
+          <span class="brand-mark"></span>
+          <span>SPORTIK</span>
+        </a>
+
+        <nav class="main-nav" aria-label="Основная навигация">
+          <button class="nav-item active" data-page="today">
+            <span class="nav-icon" aria-hidden="true">⌂</span><span>Сегодня</span>
+          </button>
+          <button class="nav-item" data-page="plan">
+            <span class="nav-icon" aria-hidden="true">▦</span><span>Мой план</span>
+          </button>
+          <button class="nav-item" data-page="progress">
+            <span class="nav-icon" aria-hidden="true">↗</span><span>Прогресс</span>
+          </button>
+          <button class="nav-item" data-page="profile">
+            <span class="nav-icon" aria-hidden="true">○</span><span>Профиль</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="mini-streak">
+            <span class="streak-icon">✦</span>
+            <div><strong><span id="sidebarStreak">12</span> дней</strong><small>Лучшая серия</small></div>
+          </div>
+          <button class="profile-chip" data-page="profile">
+            <span class="avatar">А</span>
+            <span><strong id="sidebarName">Алексей</strong><small>Мой профиль</small></span>
+            <span class="chevron">›</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="todayDate">ВОСКРЕСЕНЬЕ, 12 ИЮЛЯ</p>
+            <h1 id="pageTitle">Доброе утро, Алексей</h1>
+          </div>
+          <div class="top-actions">
+            <button class="sync-pill" id="syncStatusBtn" title="Синхронизация данных"><i></i><span>Локально</span></button>
+            <button class="icon-button" id="notificationBtn" aria-label="Уведомления">
+              <span>◌</span><i></i>
+            </button>
+            <button class="mobile-avatar" data-page="profile">А</button>
+          </div>
+        </header>
+
+        <section class="page active" id="page-today">
+          <div class="dashboard-grid">
+            <div class="primary-column">
+              <section class="workout-hero">
+                <div class="hero-copy">
+                  <div class="hero-label"><span></span> ТРЕНИРОВКА СЕГОДНЯ</div>
+                  <h2>Верх тела<br />&amp; сильный кор</h2>
+                  <p>Силовая · Средняя нагрузка</p>
+                  <div class="hero-stats">
+                    <div><strong>38</strong><span>минут</span></div>
+                    <div><strong>5</strong><span>упражнений</span></div>
+                    <div><strong>12</strong><span>подходов</span></div>
+                  </div>
+                  <button class="primary-button" id="startWorkoutBtn"><span>Начать тренировку</span><b>→</b></button>
+                </div>
+                <div class="hero-visual" aria-hidden="true">
+                  <div class="orange-orbit orbit-one"></div>
+                  <div class="orange-orbit orbit-two"></div>
+                  <div class="bench-art">
+                    <div class="bench-pad"></div><div class="bench-leg leg-a"></div><div class="bench-leg leg-b"></div>
+                  </div>
+                  <div class="dumbbell-art dumbbell-a"><i></i><b></b><i></i></div>
+                  <div class="dumbbell-art dumbbell-b"><i></i><b></b><i></i></div>
+                </div>
+              </section>
+
+              <section class="section-block">
+                <div class="section-heading">
+                  <div><p class="eyebrow">РАСПИСАНИЕ</p><h3>Эта неделя</h3></div>
+                  <button class="text-button" data-page="plan">Весь план <span>→</span></button>
+                </div>
+                <div class="week-strip" id="weekStrip"></div>
+              </section>
+
+              <section class="section-block next-section">
+                <div class="section-heading">
+                  <div><p class="eyebrow">ДАЛЬШЕ</p><h3>Ближайшие тренировки</h3></div>
+                </div>
+                <div class="upcoming-list">
+                  <article class="upcoming-card">
+                    <div class="date-tile"><strong>14</strong><span>ИЮЛ</span></div>
+                    <div class="upcoming-copy"><strong>Ноги &amp; ягодицы</strong><span>Гантели + скамья · 42 мин</span></div>
+                    <div class="intensity"><i></i><i></i><i></i><span>Высокая</span></div>
+                    <button class="round-arrow" aria-label="Открыть">→</button>
+                  </article>
+                  <article class="upcoming-card">
+                    <div class="date-tile"><strong>16</strong><span>ИЮЛ</span></div>
+                    <div class="upcoming-copy"><strong>Спина &amp; руки</strong><span>Гантели · 35 мин</span></div>
+                    <div class="intensity low"><i></i><i></i><i></i><span>Средняя</span></div>
+                    <button class="round-arrow" aria-label="Открыть">→</button>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <aside class="coach-panel">
+              <div class="coach-header">
+                <div class="coach-identity">
+                  <span class="coach-avatar"><i></i></span>
+                  <div><strong>SPORTIK Coach</strong><span><i></i> На связи</span></div>
+                </div>
+                <button class="icon-button small" id="clearChatBtn" aria-label="Очистить чат">•••</button>
+              </div>
+              <div class="coach-summary">
+                <span class="spark">✦</span>
+                <p><strong>План адаптирован</strong><br />Под вашу цель и темп восстановления</p>
+              </div>
+              <div class="chat-messages" id="chatMessages" aria-live="polite">
+                <div class="message assistant">
+                  <span class="tiny-coach">S</span>
+                  <div><p>Доброе утро! Сегодня верх тела и кор. Я учёл ваши гантели по <strong>5 кг</strong> и подобрал объём под доступный вес.</p><time>08:42</time></div>
+                </div>
+              </div>
+              <div class="quick-prompts" id="quickPrompts">
+                <button>Измени тренировку</button>
+                <button>Я плохо спал</button>
+                <button>Есть только 20 минут</button>
+              </div>
+              <form class="chat-input" id="chatForm">
+                <button type="button" class="attach-button" aria-label="Добавить">＋</button>
+                <input id="chatInput" type="text" placeholder="Спросить тренера…" autocomplete="off" />
+                <button class="send-button" type="submit" aria-label="Отправить">↑</button>
+              </form>
+              <p class="coach-note">Ассистент учитывает ваш профиль и историю тренировок</p>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="page-plan">
+          <div class="page-toolbar">
+            <div><p class="eyebrow">ПЛАН НА 4 НЕДЕЛИ</p><h2>Тренировочный календарь</h2><p>Все занятия, восстановление и ваши заметки — в одном месте.</p></div>
+            <button class="primary-button compact" id="adaptPlanBtn">✦ Адаптировать план</button>
+          </div>
+          <div class="plan-board" id="planBoard"></div>
+          <section class="exercise-library-section">
+            <div class="section-heading">
+              <div><p class="eyebrow">ТЕХНИКА</p><h3>Библиотека упражнений</h3><p>Нажмите на карточку и управляйте движением вручную.</p></div>
+              <span class="library-count">10 упражнений</span>
+            </div>
+            <div class="exercise-library" id="exerciseLibrary"></div>
+          </section>
+        </section>
+
+        <section class="page" id="page-progress">
+          <div class="page-toolbar">
+            <div><p class="eyebrow">АНАЛИТИКА</p><h2>Ваш прогресс</h2><p>Небольшие регулярные шаги складываются в результат.</p></div>
+            <select class="period-select" aria-label="Период"><option>Последние 8 недель</option><option>Этот месяц</option><option>Всё время</option></select>
+          </div>
+          <div class="metric-grid">
+            <article class="metric-card"><span>ТРЕНИРОВОК</span><strong id="metricWorkouts">18</strong><small><b>↗ 12%</b> к прошлому месяцу</small></article>
+            <article class="metric-card"><span>ОБЩЕЕ ВРЕМЯ</span><strong>11<span>ч</span> 24<span>м</span></strong><small>Средняя тренировка · 38 мин</small></article>
+            <article class="metric-card"><span>СЕРИЯ</span><strong><span id="metricStreak">12</span> <span>дней</span></strong><small>Личный рекорд · 16 дней</small></article>
+            <article class="metric-card accent"><span>ВЫПОЛНЕНО</span><strong id="metricPercent">86%</strong><small>Вы в отличном темпе</small></article>
+          </div>
+          <div class="analytics-grid">
+            <section class="chart-card">
+              <div class="section-heading"><div><p class="eyebrow">ОБЪЁМ</p><h3>Активность по неделям</h3></div><div class="legend"><i></i> Тренировки</div></div>
+              <div class="bar-chart" id="barChart"></div>
+            </section>
+            <section class="chart-card strength-card">
+              <p class="eyebrow">СИЛА</p><h3>Рост рабочих весов</h3>
+              <div class="strength-row"><span>Жим гантелей</span><strong>+18%</strong></div><div class="strength-track"><i style="width:78%"></i></div>
+              <div class="strength-row"><span>Тяга в наклоне</span><strong>+14%</strong></div><div class="strength-track"><i style="width:66%"></i></div>
+              <div class="strength-row"><span>Гоблет-присед</span><strong>+22%</strong></div><div class="strength-track"><i style="width:88%"></i></div>
+              <div class="coach-insight"><span>✦</span><p><strong>Вы стали сильнее</strong><br />Особенно заметен прогресс в упражнениях на ноги.</p></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="page-profile">
+          <div class="page-toolbar"><div><p class="eyebrow">ПРОФИЛЬ</p><h2>Ваши данные</h2><p>Ассистент использует их, чтобы безопасно адаптировать нагрузку.</p></div><button class="primary-button compact" id="saveProfileBtn">Сохранить изменения</button></div>
+          <div class="profile-layout">
+            <section class="profile-card identity-card">
+              <div class="large-avatar" id="profileAvatar">А</div><h3 id="profileDisplayName">Алексей</h3><p>В программе с мая 2026</p><span class="goal-tag">Цель: стать сильнее</span>
+            </section>
+            <form class="profile-card profile-form" id="profileForm">
+              <h3>Основные данные</h3>
+              <div class="form-grid">
+                <label>Имя<input name="name" value="Алексей" /></label>
+                <label>Возраст<input name="age" type="number" value="31" /></label>
+                <label>Рост, см<input name="height" type="number" value="181" /></label>
+                <label>Вес, кг<input name="weight" type="number" step="0.1" value="78" /></label>
+                <label>Уровень<select name="level"><option>Начинающий</option><option selected>Средний</option><option>Продвинутый</option></select></label>
+                <label>Главная цель<select name="goal"><option>Снижение веса</option><option selected>Стать сильнее</option><option>Набор мышц</option><option>Поддержание формы</option></select></label>
+              </div>
+              <h3>Оборудование</h3>
+              <div class="equipment-options"><label><input type="checkbox" checked /> <span>Гантели</span></label><label><input type="checkbox" checked /> <span>Тренировочная скамья</span></label><label><input type="checkbox" /> <span>Резинки</span></label></div>
+              <div class="equipment-weight-card">
+                <div><span class="equipment-icon">●━●</span><p><strong>Ваши гантели</strong><br /><small>Ассистент не предложит вес тяжелее доступного</small></p></div>
+                <div class="equipment-controls">
+                  <label>Вес одной, кг<input name="dumbbellWeight" id="dumbbellWeight" type="number" min="1" max="50" step="0.5" value="5" /></label>
+                  <label>Количество<select name="dumbbellCount" id="dumbbellCount"><option value="1">1 гантель</option><option value="2" selected>2 гантели</option></select></label>
+                </div>
+              </div>
+              <h3>Ограничения и заметки</h3>
+              <textarea name="notes" placeholder="Например: иногда беспокоит правое колено…"></textarea>
+            </form>
+            <section class="profile-card account-card">
+              <div class="account-head"><span class="cloud-icon">☁</span><div><h3>Аккаунт и синхронизация</h3><p>Войдите, чтобы продолжать с того же места на телефоне.</p></div></div>
+              <div id="signedOutView">
+                <label class="auth-email-label">E-mail<input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" /></label>
+                <div class="auth-actions"><button class="primary-button compact" id="emailLoginBtn">Получить ссылку для входа</button><button class="secondary-button" id="googleLoginBtn">Войти через Google</button></div>
+                <p class="auth-note">Пароль не нужен: ссылка для входа придёт на почту.</p>
+              </div>
+              <div class="signed-in-view hidden" id="signedInView">
+                <div class="signed-user"><span class="avatar">А</span><div><strong id="accountEmail">—</strong><small>Прогресс синхронизирован</small></div></div>
+                <button class="secondary-button" id="logoutBtn">Выйти</button>
+              </div>
+              <p class="setup-notice" id="cloudSetupNotice">Облачная синхронизация будет доступна после подключения Supabase.</p>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <nav class="mobile-nav" aria-label="Мобильная навигация">
+        <button class="nav-item active" data-page="today"><span>⌂</span><small>Сегодня</small></button>
+        <button class="nav-item" data-page="plan"><span>▦</span><small>План</small></button>
+        <button class="nav-item coach-mobile" id="mobileCoachBtn"><span>✦</span><small>Тренер</small></button>
+        <button class="nav-item" data-page="progress"><span>↗</span><small>Прогресс</small></button>
+        <button class="nav-item" data-page="profile"><span>○</span><small>Профиль</small></button>
+      </nav>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <div class="modal-backdrop hidden" id="workoutModal">
+      <div class="workout-modal" role="dialog" aria-modal="true" aria-labelledby="workoutExerciseTitle">
+        <button class="modal-close" data-close-modal aria-label="Закрыть">×</button>
+        <div class="workout-progress"><i id="workoutProgressBar"></i></div>
+        <p class="eyebrow" id="workoutCounter">УПРАЖНЕНИЕ 1 ИЗ 5</p>
+        <div class="exercise-motion-player playing" id="workoutMotionPlayer">
+          <img id="workoutExerciseImage" src="assets/exercises/floor-press.png" alt="Техника упражнения" />
+          <span class="motion-scan"></span>
+          <div class="motion-overlay"><button id="workoutMotionToggle" aria-label="Пауза анимации">Ⅱ</button><span id="workoutMotionPhase">СТАРТ → ФИНИШ</span><input id="workoutMotionRange" type="range" min="0" max="100" value="0" aria-label="Фаза движения" /></div>
+        </div>
+        <h2 id="workoutExerciseTitle">Жим гантелей лёжа</h2>
+        <p id="workoutExerciseMeta">3 подхода · 10 повторов · 2 × 5 кг</p>
+        <button class="technique-button" id="openTechniqueBtn">Разобрать технику <span>→</span></button>
+        <div class="set-table" id="setTable"></div>
+        <div class="modal-actions"><button class="secondary-button" id="prevExerciseBtn">Назад</button><button class="primary-button compact" id="completeSetBtn">Завершить подход</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="onboardingModal">
+      <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+        <div class="onboarding-top"><a class="brand"><span class="brand-mark"></span><span>SPORTIK</span></a><button class="skip-button" id="skipOnboarding">Посмотреть демо</button></div>
+        <div class="onboarding-progress"><i id="onboardingBar"></i></div>
+        <div class="onboarding-step active" data-step="0">
+          <p class="eyebrow">ШАГ 1 ИЗ 3</p><h2 id="onboardingTitle">Начнём с вашей цели</h2><p>Это поможет тренеру подобрать темп и тип нагрузки.</p>
+          <div class="choice-grid single" data-choice="goal"><button data-value="Стать сильнее" class="selected"><b>↑</b><span><strong>Стать сильнее</strong><small>Постепенно увеличивать рабочие веса</small></span></button><button data-value="Набор мышц"><b>＋</b><span><strong>Набрать мышцы</strong><small>Фокус на объёме и восстановлении</small></span></button><button data-value="Снижение веса"><b>↘</b><span><strong>Снизить вес</strong><small>Силовые плюс активный темп</small></span></button></div>
+        </div>
+        <div class="onboarding-step" data-step="1">
+          <p class="eyebrow">ШАГ 2 ИЗ 3</p><h2>Расскажите немного о себе</h2><p>Данные можно изменить в профиле в любой момент.</p>
+          <div class="form-grid onboarding-fields"><label>Имя<input id="onboardingName" value="Алексей" /></label><label>Возраст<input id="onboardingAge" type="number" value="31" /></label><label>Рост, см<input id="onboardingHeight" type="number" value="181" /></label><label>Вес, кг<input id="onboardingWeight" type="number" value="78" /></label></div>
+        </div>
+        <div class="onboarding-step" data-step="2">
+          <p class="eyebrow">ШАГ 3 ИЗ 3</p><h2>Ваш комфортный ритм</h2><p>План будет автоматически перестраиваться, если график изменится.</p>
+          <div class="choice-grid schedule-choice" data-choice="frequency"><button data-value="2"><strong>2 раза</strong><small>Спокойный старт</small></button><button data-value="3" class="selected"><strong>3 раза</strong><small>Оптимально</small></button><button data-value="4"><strong>4 раза</strong><small>Интенсивно</small></button></div>
+          <div class="equipment-confirm"><span>✓</span><p><strong>Оборудование учтено</strong><br />2 гантели по 5 кг и тренировочная скамья</p></div>
+        </div>
+        <div class="onboarding-actions"><button class="secondary-button hidden" id="onboardingBack">Назад</button><button class="primary-button compact" id="onboardingNext">Продолжить <span>→</span></button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="techniqueModal">
+      <div class="technique-modal" role="dialog" aria-modal="true" aria-labelledby="techniqueTitle">
+        <button class="modal-close" id="closeTechniqueBtn" aria-label="Закрыть технику">×</button>
+        <div class="technique-layout">
+          <div class="technique-visual">
+            <div class="technique-image-wrap playing" id="techniqueImageWrap">
+              <img id="techniqueImage" src="assets/exercises/floor-press.png" alt="Демонстрация упражнения" />
+              <span class="motion-scan"></span>
+            </div>
+            <div class="technique-controls">
+              <button class="motion-play-button" id="techniquePlayBtn"><span>Ⅱ</span> Пауза</button>
+              <input id="techniqueRange" type="range" min="0" max="100" value="0" aria-label="Фаза движения" />
+              <span id="techniquePhase">СТАРТ</span>
+            </div>
+          </div>
+          <div class="technique-copy">
+            <p class="eyebrow">ТЕХНИКА УПРАЖНЕНИЯ</p>
+            <h2 id="techniqueTitle">Жим гантелей лёжа</h2>
+            <p id="techniqueMuscles">Грудь · трицепс · плечи</p>
+            <div class="technique-steps" id="techniqueSteps"></div>
+            <div class="coach-tip"><span>✦</span><p><strong>Подсказка SPORTIK</strong><br /><span id="techniqueTip">Двигайтесь плавно и сохраняйте контроль.</span></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

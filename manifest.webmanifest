@@ -1,0 +1,12 @@
+{
+  "name": "SPORTIK — персональный тренер",
+  "short_name": "SPORTIK",
+  "description": "Домашние тренировки, прогресс и персональный AI-тренер",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f1",
+  "theme_color": "#111210",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

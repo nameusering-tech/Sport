@@ -1,0 +1,11 @@
+{
+  "name": "sportik-fitness",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SPORTIK — персональный тренер с синхронизацией прогресса",
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node --check app.js && node --check api/coach.js && node --check api/config.js"
+  }
+}
