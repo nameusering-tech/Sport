@@ -718,8 +718,19 @@ async function initCloud() {
     });
     const callbackUrl = new URL(location.href);
     const authCode = callbackUrl.searchParams.get("code");
+    const authHash = new URLSearchParams(callbackUrl.hash.replace(/^#/, ""));
+    const accessToken = authHash.get("access_token");
+    const refreshToken = authHash.get("refresh_token");
     let session = null;
-    if (authCode) {
+    if (accessToken && refreshToken) {
+      const { data, error } = await cloudClient.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      });
+      history.replaceState({}, document.title, location.pathname);
+      if (error) throw error;
+      session = data.session;
+    } else if (authCode) {
       const { data, error } = await cloudClient.auth.exchangeCodeForSession(authCode);
       history.replaceState({}, document.title, location.pathname);
       if (error) throw error;
