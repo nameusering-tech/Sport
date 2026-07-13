@@ -78,6 +78,7 @@ let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
 let voiceTimer = null;
+let speechRecognition = null;
 let authGateSkipped = false;
 let emailCooldownUntil = 0;
 let emailCooldownTimer = null;
@@ -449,9 +450,12 @@ async function submitChat(text) {
     addAssistantMessage(`${result?.reply || getCoachReply(clean)}${changed ? " План и календарь обновлены." : ""}`);
   } catch (error) {
     typing.remove();
+    const quotaExceeded = /quota|billing|insufficient_quota/i.test(error?.message || "");
     addAssistantMessage(error?.message === "AUTH_REQUIRED"
       ? "Чтобы я мог безопасно создать и сохранить ваш персональный план, сначала войдите в аккаунт в разделе «Профиль»."
-      : `${getCoachReply(clean)} Облачный AI временно недоступен: ${error?.message || "неизвестная ошибка"}.`);
+      : quotaExceeded
+        ? `${getCoachReply(clean)} Голос распознан, но лимит OpenAI API исчерпан. Пополните баланс API, чтобы включить полный AI-ответ.`
+        : `${getCoachReply(clean)} Облачный AI временно недоступен: ${error?.message || "неизвестная ошибка"}.`);
   }
 }
 
@@ -499,16 +503,82 @@ async function transcribeVoice(blob) {
 
 function stopVoiceRecording() {
   clearTimeout(voiceTimer);
+  if (speechRecognition) {
+    speechRecognition.stop();
+    return;
+  }
   if (voiceRecorder?.state === "recording") voiceRecorder.stop();
 }
 
+function startBrowserSpeechRecognition() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return false;
+
+  const recognition = new Recognition();
+  let finalText = "";
+  let failed = false;
+  speechRecognition = recognition;
+  recognition.lang = "ru-RU";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onstart = () => {
+    const button = document.getElementById("voiceBtn");
+    button.classList.add("recording");
+    button.innerHTML = STOP_ICON;
+    button.setAttribute("aria-label", "Остановить запись");
+    button.setAttribute("aria-pressed", "true");
+    document.getElementById("chatInput").placeholder = "Говорите… Нажмите ещё раз, чтобы остановить";
+    voiceTimer = setTimeout(() => recognition.stop(), 60_000);
+  };
+
+  recognition.onresult = event => {
+    let interimText = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const text = event.results[index][0]?.transcript || "";
+      if (event.results[index].isFinal) finalText += `${text} `;
+      else interimText += text;
+    }
+    document.getElementById("chatInput").value = `${finalText}${interimText}`.trim();
+  };
+
+  recognition.onerror = event => {
+    failed = true;
+    const messages = {
+      "not-allowed": "Разрешите SPORTIK использовать микрофон. Если системный запрос не появился, нажмите замок рядом с адресом сайта.",
+      "audio-capture": "Микрофон не найден или занят другим приложением.",
+      "no-speech": "Речь не обнаружена. Нажмите микрофон и попробуйте ещё раз.",
+      network: "Браузеру не удалось распознать речь. Проверьте интернет и повторите."
+    };
+    showToast(messages[event.error] || "Не удалось распознать голос");
+  };
+
+  recognition.onend = async () => {
+    clearTimeout(voiceTimer);
+    speechRecognition = null;
+    const text = document.getElementById("chatInput").value.trim();
+    resetVoiceButton();
+    if (!failed && text) await submitChat(text);
+  };
+
+  try {
+    recognition.start();
+    return true;
+  } catch {
+    speechRecognition = null;
+    return false;
+  }
+}
+
 async function toggleVoiceRecording() {
+  if (speechRecognition) return stopVoiceRecording();
   if (voiceRecorder?.state === "recording") return stopVoiceRecording();
   if (!cloudSession?.access_token) {
     showToast("Войдите в аккаунт, чтобы использовать голосовой ввод");
     switchPage("profile");
     return;
   }
+  if (startBrowserSpeechRecognition()) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return showToast("Запись голоса не поддерживается этим браузером");
   try {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
