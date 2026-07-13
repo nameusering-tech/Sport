@@ -1,4 +1,4 @@
-const CACHE = "sportik-shell-v8";
+const CACHE = "sportik-shell-v9";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./assets/icon.svg"];
 
 self.addEventListener("install", event => {
