@@ -502,11 +502,12 @@ async function transcribeVoice(blob) {
 }
 
 function stopVoiceRecording() {
-  clearTimeout(voiceTimer);
   if (speechRecognition) {
-    speechRecognition.stop();
+    if (typeof speechRecognition._sportikFinish === "function") speechRecognition._sportikFinish();
+    else speechRecognition.stop();
     return;
   }
+  clearTimeout(voiceTimer);
   if (voiceRecorder?.state === "recording") voiceRecorder.stop();
 }
 
@@ -516,20 +517,42 @@ function startBrowserSpeechRecognition() {
 
   const recognition = new Recognition();
   let finalText = "";
-  let failed = false;
+  let fatalError = false;
+  let stopRequested = false;
+  let finished = false;
+  let restartTimer = null;
   speechRecognition = recognition;
   recognition.lang = "ru-RU";
-  recognition.continuous = false;
+  recognition.continuous = true;
   recognition.interimResults = true;
 
+  const finishRecognition = async () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(voiceTimer);
+    clearTimeout(restartTimer);
+    speechRecognition = null;
+    const text = document.getElementById("chatInput").value.trim();
+    resetVoiceButton();
+    if (!fatalError && text) await submitChat(text);
+  };
+
+  recognition._sportikFinish = () => {
+    stopRequested = true;
+    clearTimeout(restartTimer);
+    if (recognition._sportikActive) {
+      try { recognition.stop(); } catch { finishRecognition(); }
+    } else finishRecognition();
+  };
+
   recognition.onstart = () => {
+    recognition._sportikActive = true;
     const button = document.getElementById("voiceBtn");
     button.classList.add("recording");
     button.innerHTML = STOP_ICON;
     button.setAttribute("aria-label", "Остановить запись");
     button.setAttribute("aria-pressed", "true");
-    document.getElementById("chatInput").placeholder = "Говорите… Нажмите ещё раз, чтобы остановить";
-    voiceTimer = setTimeout(() => recognition.stop(), 60_000);
+    document.getElementById("chatInput").placeholder = "Говорите спокойно… Нажмите ■, когда закончите";
   };
 
   recognition.onresult = event => {
@@ -543,26 +566,33 @@ function startBrowserSpeechRecognition() {
   };
 
   recognition.onerror = event => {
-    failed = true;
+    if (event.error === "no-speech") return;
+    if (event.error === "aborted" && stopRequested) return;
+    fatalError = true;
     const messages = {
       "not-allowed": "Разрешите SPORTIK использовать микрофон. Если системный запрос не появился, нажмите замок рядом с адресом сайта.",
       "audio-capture": "Микрофон не найден или занят другим приложением.",
-      "no-speech": "Речь не обнаружена. Нажмите микрофон и попробуйте ещё раз.",
       network: "Браузеру не удалось распознать речь. Проверьте интернет и повторите."
     };
     showToast(messages[event.error] || "Не удалось распознать голос");
   };
 
   recognition.onend = async () => {
-    clearTimeout(voiceTimer);
-    speechRecognition = null;
-    const text = document.getElementById("chatInput").value.trim();
-    resetVoiceButton();
-    if (!failed && text) await submitChat(text);
+    recognition._sportikActive = false;
+    if (!fatalError && !stopRequested && !finished) {
+      document.getElementById("chatInput").placeholder = "Пауза… продолжаю слушать";
+      restartTimer = setTimeout(() => {
+        if (speechRecognition !== recognition || stopRequested || finished) return;
+        try { recognition.start(); } catch { finishRecognition(); }
+      }, 350);
+      return;
+    }
+    await finishRecognition();
   };
 
   try {
     recognition.start();
+    voiceTimer = setTimeout(() => recognition._sportikFinish(), 5 * 60_000);
     return true;
   } catch {
     speechRecognition = null;
