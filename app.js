@@ -713,12 +713,25 @@ async function initCloud() {
       .trim()
       .replace(/\/(?:rest|auth)\/v1\/?$/i, "")
       .replace(/\/$/, "");
-    cloudClient = createClient(supabaseUrl, config.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true } });
+    cloudClient = createClient(supabaseUrl, config.supabaseAnonKey, {
+      auth: { persistSession: true, detectSessionInUrl: false, flowType: "pkce" }
+    });
+    const callbackUrl = new URL(location.href);
+    const authCode = callbackUrl.searchParams.get("code");
+    let session = null;
+    if (authCode) {
+      const { data, error } = await cloudClient.auth.exchangeCodeForSession(authCode);
+      history.replaceState({}, document.title, location.pathname);
+      if (error) throw error;
+      session = data.session;
+    } else {
+      const { data } = await cloudClient.auth.getSession();
+      session = data.session;
+    }
     const authError = readAuthError();
-    const { data } = await cloudClient.auth.getSession();
-    await handleCloudSession(data.session);
+    await handleCloudSession(session);
     cloudClient.auth.onAuthStateChange((_event, session) => setTimeout(() => handleCloudSession(session), 0));
-    if (!data.session) {
+    if (!session) {
       document.getElementById("cloudSetupNotice").textContent = "Облако подключено. Войдите по e-mail или через Google.";
       setSyncStatus("Войти", "ready");
       showAuthGate(authError);
