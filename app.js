@@ -26,6 +26,7 @@ const defaultState = {
   completedDays: [],
   workoutPlan: [],
   schedule: [],
+  coachInterviewStarted: false,
   currentWorkout: { exercise: 0, set: 0 },
   chat: [],
   updatedAt: 0,
@@ -744,7 +745,9 @@ function renderSavedChat() {
 }
 
 function startCoachInterview() {
-  if (state.chat.length || getExercises().length) return;
+  if (state.coachInterviewStarted || getExercises().length) return;
+  state.coachInterviewStarted = true;
+  saveState();
   addAssistantMessage("Привет! Я задам несколько коротких вопросов и затем сам создам ваш план. Начнём: какая у вас главная цель — стать сильнее, набрать мышцы, снизить вес или поддерживать форму?");
   renderReplyOptions(["Стать сильнее", "Набрать мышцы", "Снизить вес", "Поддерживать форму"]);
   if (window.innerWidth <= 700) document.querySelector(".coach-panel")?.classList.add("mobile-open");
@@ -774,7 +777,7 @@ function hideAuthGate() {
 }
 
 function maybeShowOnboarding() {
-  if (cloudSession?.user && !state.chat.length && !getExercises().length) {
+  if (cloudSession?.user && !state.coachInterviewStarted && !getExercises().length) {
     if (!state.onboarded) {
       state.onboarded = true;
       saveState();
@@ -1012,12 +1015,12 @@ function bindEvents() {
   document.getElementById("voiceBtn").addEventListener("click", toggleVoiceRecording);
   document.querySelectorAll("#quickPrompts button").forEach(button => button.addEventListener("click", () => submitChat(button.textContent)));
   document.getElementById("clearChatBtn").addEventListener("click", () => {
-    const initial = document.querySelector("#chatMessages .message:first-child");
     document.getElementById("chatMessages").innerHTML = "";
-    if (initial) document.getElementById("chatMessages").appendChild(initial);
     state.chat = [];
+    state.coachInterviewStarted = false;
     saveState();
-    showToast("История диалога очищена");
+    showToast("История диалога очищена — начинаем интервью заново");
+    if (cloudSession?.user) startCoachInterview();
   });
   document.getElementById("mobileCoachBtn").addEventListener("click", () => {
     document.querySelector(".coach-panel").classList.toggle("mobile-open");
