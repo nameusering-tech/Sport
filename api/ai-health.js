@@ -11,7 +11,13 @@ export default async function handler(request, response) {
   if (!process.env.GEMINI_API_KEY) return response.status(503).json({ provider, configured: false });
 
   const selectedModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const models = [...new Set([selectedModel, "gemini-2.5-flash"])];
+  const models = [...new Set([
+    selectedModel,
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+    "gemini-flash-latest"
+  ])];
   const checks = [];
   for (const model of models) {
     try {
