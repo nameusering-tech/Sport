@@ -29,5 +29,16 @@ export default async function handler(request, response) {
       checks.push({ model, status: 0, ok: false, detail: error.message });
     }
   }
-  return response.status(200).json({ provider, configured: true, checks });
+  let availableModels = [];
+  try {
+    const listResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", {
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY }
+    });
+    const listData = await listResponse.json();
+    availableModels = (listData.models || [])
+      .filter(item => item.supportedGenerationMethods?.includes("generateContent"))
+      .map(item => item.name?.replace(/^models\//, ""))
+      .filter(name => /gemini.*(?:flash|pro)/i.test(name));
+  } catch {}
+  return response.status(200).json({ provider, configured: true, checks, availableModels });
 }
