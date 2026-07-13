@@ -462,7 +462,11 @@ async function initCloud() {
   }
   try {
     const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-    cloudClient = createClient(config.supabaseUrl, config.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true } });
+    const supabaseUrl = config.supabaseUrl
+      .trim()
+      .replace(/\/(?:rest|auth)\/v1\/?$/i, "")
+      .replace(/\/$/, "");
+    cloudClient = createClient(supabaseUrl, config.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true } });
     const { data } = await cloudClient.auth.getSession();
     await handleCloudSession(data.session);
     cloudClient.auth.onAuthStateChange((_event, session) => setTimeout(() => handleCloudSession(session), 0));

@@ -24,7 +24,10 @@ export default async function handler(request, response) {
   if (request.method !== "POST") return response.status(405).json({ error: "Method not allowed" });
 
   const openaiKey = process.env.OPENAI_API_KEY;
-  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseUrl = (process.env.SUPABASE_URL || "")
+    .trim()
+    .replace(/\/(?:rest|auth)\/v1\/?$/i, "")
+    .replace(/\/$/, "");
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   if (!openaiKey || !supabaseUrl || !supabaseAnonKey) return response.status(503).json({ error: "Server is not configured" });
 
