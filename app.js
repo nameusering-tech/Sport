@@ -1,5 +1,7 @@
 const STORAGE_KEY = "sportik-fitness-v2";
 const LEGACY_STORAGE_KEY = "forma-fitness-v1";
+const MIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v5.5a4 4 0 0 0 4 4Z"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg>';
+const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
 
 const defaultState = {
   schemaVersion: 3,
@@ -76,6 +78,9 @@ let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
 let voiceTimer = null;
+let authGateSkipped = false;
+let emailCooldownUntil = 0;
+let emailCooldownTimer = null;
 
 function loadState() {
   try {
@@ -462,8 +467,9 @@ function blobToBase64(blob) {
 function resetVoiceButton() {
   const button = document.getElementById("voiceBtn");
   button.classList.remove("recording", "transcribing");
-  button.textContent = "●";
+  button.innerHTML = MIC_ICON;
   button.setAttribute("aria-label", "Записать голосовое сообщение");
+  button.setAttribute("aria-pressed", "false");
   document.getElementById("chatInput").placeholder = "Спросить тренера…";
 }
 
@@ -520,13 +526,16 @@ async function toggleVoiceRecording() {
     voiceRecorder.start(250);
     const button = document.getElementById("voiceBtn");
     button.classList.add("recording");
-    button.textContent = "■";
+    button.innerHTML = STOP_ICON;
     button.setAttribute("aria-label", "Остановить запись");
+    button.setAttribute("aria-pressed", "true");
     document.getElementById("chatInput").placeholder = "Говорите… Нажмите ■ для отправки";
     voiceTimer = setTimeout(stopVoiceRecording, 60_000);
   } catch (error) {
     resetVoiceButton();
-    showToast(error?.name === "NotAllowedError" ? "Разрешите доступ к микрофону в настройках браузера" : "Не удалось включить микрофон");
+    showToast(error?.name === "NotAllowedError"
+      ? "Браузер заблокировал микрофон. Если вы уже нажали «Запретить», разрешите его через значок замка рядом с адресом сайта."
+      : "Не удалось включить микрофон");
   }
 }
 
@@ -540,11 +549,45 @@ function setSyncStatus(label, mode = "local") {
   button.dataset.mode = mode;
 }
 
+function setAuthGateStatus(message = "") {
+  document.getElementById("authGateStatus").textContent = message;
+}
+
+function showAuthGate(message = "") {
+  if (authGateSkipped || cloudSession?.user) return;
+  document.getElementById("onboardingModal").classList.add("hidden");
+  document.getElementById("authGateModal").classList.remove("hidden");
+  setAuthGateStatus(message);
+  document.body.style.overflow = "hidden";
+}
+
+function hideAuthGate() {
+  document.getElementById("authGateModal").classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function maybeShowOnboarding() {
+  if (!state.onboarded && (cloudSession?.user || authGateSkipped)) {
+    document.getElementById("onboardingModal").classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  }
+}
+
+function readAuthError() {
+  const query = new URLSearchParams(location.search);
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const description = query.get("error_description") || hash.get("error_description");
+  if (!description) return "";
+  history.replaceState({}, document.title, location.pathname);
+  return decodeURIComponent(description.replace(/\+/g, " "));
+}
+
 function updateAuthUI() {
   const signedIn = Boolean(cloudSession?.user);
   document.getElementById("signedOutView").classList.toggle("hidden", signedIn);
   document.getElementById("signedInView").classList.toggle("hidden", !signedIn);
   if (signedIn) {
+    hideAuthGate();
     document.getElementById("accountEmail").textContent = cloudSession.user.email || "Аккаунт SPORTIK";
     document.getElementById("cloudSetupNotice").textContent = "Данные защищены правилами доступа и синхронизируются между устройствами.";
     setSyncStatus("Синхронизировано", "synced");
@@ -561,6 +604,7 @@ async function initCloud() {
   } catch { /* автономный режим */ }
   if (!config.supabaseUrl || !config.supabaseAnonKey) {
     setSyncStatus("Локально", "local");
+    setAuthGateStatus("Облачный вход временно недоступен. Можно продолжить без аккаунта.");
     return;
   }
   try {
@@ -576,10 +620,12 @@ async function initCloud() {
     if (!data.session) {
       document.getElementById("cloudSetupNotice").textContent = "Облако подключено. Войдите по e-mail или через Google.";
       setSyncStatus("Войти", "ready");
+      showAuthGate(readAuthError());
     }
   } catch {
     setSyncStatus("Локально", "local");
     document.getElementById("cloudSetupNotice").textContent = "Не удалось связаться с облаком. Локальные данные сохранены.";
+    showAuthGate("Не удалось связаться с облаком. Можно продолжить без аккаунта и повторить вход позже.");
   }
 }
 
@@ -614,6 +660,7 @@ async function handleCloudSession(session) {
     } else await syncNow();
   } else if (!error) await syncNow();
   setSyncStatus("Синхронизировано", "synced");
+  maybeShowOnboarding();
 }
 
 function queueRemoteSync() {
@@ -631,19 +678,46 @@ async function syncNow() {
   setSyncStatus(error ? "Ошибка облака" : "Синхронизировано", error ? "error" : "synced");
 }
 
-async function loginWithEmail() {
+function updateEmailCooldown() {
+  const seconds = Math.max(0, Math.ceil((emailCooldownUntil - Date.now()) / 1000));
+  const buttons = [document.getElementById("emailLoginBtn"), document.getElementById("authGateEmailBtn")];
+  buttons.forEach(button => {
+    button.disabled = seconds > 0;
+    button.textContent = seconds > 0 ? `Повторить через ${seconds} сек` : "Получить ссылку для входа";
+  });
+  if (seconds > 0) emailCooldownTimer = setTimeout(updateEmailCooldown, 1000);
+}
+
+async function loginWithEmail(inputId = "authEmail") {
   if (!cloudClient) return showToast("Сначала подключите Supabase по инструкции в README");
-  const email = document.getElementById("authEmail").value.trim();
+  if (Date.now() < emailCooldownUntil) return;
+  const email = document.getElementById(inputId).value.trim();
   if (!email) return showToast("Введите e-mail");
   const redirectTo = `${location.origin}${location.pathname}`;
   const { error } = await cloudClient.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-  showToast(error ? `Не удалось отправить ссылку: ${error.message}` : "Ссылка для входа отправлена на почту");
+  if (error) {
+    const rateLimited = /rate|seconds|security purposes|too many/i.test(error.message);
+    const message = rateLimited ? "Слишком много запросов. Подождите минуту или войдите через Google." : `Не удалось отправить ссылку: ${error.message}`;
+    setAuthGateStatus(message);
+    showToast(message);
+    return;
+  }
+  emailCooldownUntil = Date.now() + 60_000;
+  clearTimeout(emailCooldownTimer);
+  updateEmailCooldown();
+  const message = "Ссылка отправлена. Откройте только самое новое письмо — предыдущие ссылки становятся недействительными.";
+  setAuthGateStatus(message);
+  showToast(message);
 }
 
 async function loginWithGoogle() {
   if (!cloudClient) return showToast("Сначала подключите Supabase по инструкции в README");
+  setAuthGateStatus("Перенаправляем в Google…");
   const { error } = await cloudClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${location.origin}${location.pathname}` } });
-  if (error) showToast(`Вход недоступен: ${error.message}`);
+  if (error) {
+    setAuthGateStatus(`Google-вход недоступен: ${error.message}`);
+    showToast(`Вход недоступен: ${error.message}`);
+  }
 }
 
 function showOnboardingStep(step) {
@@ -738,8 +812,15 @@ function bindEvents() {
 
   document.getElementById("notificationBtn").addEventListener("click", () => showToast(state.schedule.length ? "Расписание активно" : "Напоминаний пока нет"));
   document.getElementById("syncStatusBtn").addEventListener("click", () => switchPage("profile"));
-  document.getElementById("emailLoginBtn").addEventListener("click", loginWithEmail);
+  document.getElementById("emailLoginBtn").addEventListener("click", () => loginWithEmail("authEmail"));
   document.getElementById("googleLoginBtn").addEventListener("click", loginWithGoogle);
+  document.getElementById("authGateEmailBtn").addEventListener("click", () => loginWithEmail("authGateEmail"));
+  document.getElementById("authGateGoogleBtn").addEventListener("click", loginWithGoogle);
+  document.getElementById("continueAsGuestBtn").addEventListener("click", () => {
+    authGateSkipped = true;
+    hideAuthGate();
+    maybeShowOnboarding();
+  });
   document.getElementById("logoutBtn").addEventListener("click", async () => {
     stopVoiceRecording();
     if (cloudClient) await cloudClient.auth.signOut();
@@ -754,6 +835,8 @@ function bindEvents() {
     renderChart();
     updateAuthUI();
     setSyncStatus("Войти", "ready");
+    authGateSkipped = false;
+    showAuthGate("Вы вышли из аккаунта. Войдите снова, чтобы восстановить сохранённые данные.");
     showToast("Вы вышли из аккаунта");
   });
 
@@ -790,13 +873,9 @@ function init() {
   renderDashboard();
   renderSavedChat();
   bindEvents();
+  showAuthGate("Проверяем сохранённый вход…");
   initCloud();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("service-worker.js").catch(() => {});
-  if (!state.onboarded) {
-    document.getElementById("onboardingModal").classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-    showOnboardingStep(0);
-  }
 }
 
 init();

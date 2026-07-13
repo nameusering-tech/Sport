@@ -138,7 +138,7 @@
                 <button>Есть только 20 минут</button>
               </div>
               <form class="chat-input" id="chatForm">
-                <button type="button" class="attach-button voice-button" id="voiceBtn" aria-label="Записать голосовое сообщение" title="Голосовое сообщение">●</button>
+                <button type="button" class="attach-button voice-button" id="voiceBtn" aria-label="Записать голосовое сообщение" aria-pressed="false" title="Голосовое сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v5.5a4 4 0 0 0 4 4Z"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg></button>
                 <input id="chatInput" type="text" placeholder="Спросить тренера…" autocomplete="off" />
                 <button class="send-button" type="submit" aria-label="Отправить">↑</button>
               </form>
@@ -241,6 +241,22 @@
     </div>
 
     <div class="toast" id="toast" role="status"></div>
+
+    <div class="modal-backdrop hidden" id="authGateModal">
+      <div class="auth-gate-card" role="dialog" aria-modal="true" aria-labelledby="authGateTitle">
+        <div class="auth-gate-brand"><span class="brand-mark"></span><strong>SPORTIK</strong></div>
+        <p class="eyebrow">ВАШ ПЕРСОНАЛЬНЫЙ ТРЕНЕР</p>
+        <h2 id="authGateTitle">Войдите, чтобы продолжить</h2>
+        <p>План, прогресс и диалог с тренером восстановятся на любом устройстве.</p>
+        <button class="google-auth-button" id="authGateGoogleBtn"><span>G</span> Продолжить с Google</button>
+        <div class="auth-divider"><span>или по e-mail</span></div>
+        <label class="auth-email-label">E-mail<input id="authGateEmail" type="email" placeholder="you@example.com" autocomplete="email" /></label>
+        <button class="secondary-button auth-email-button" id="authGateEmailBtn">Получить ссылку для входа</button>
+        <p class="auth-gate-status" id="authGateStatus" aria-live="polite"></p>
+        <button class="skip-auth-button" id="continueAsGuestBtn">Продолжить без аккаунта</button>
+        <small>Без входа данные останутся только на этом устройстве, а AI-тренер будет недоступен.</small>
+      </div>
+    </div>
 
     <div class="modal-backdrop hidden" id="workoutModal">
       <div class="workout-modal" role="dialog" aria-modal="true" aria-labelledby="workoutExerciseTitle">

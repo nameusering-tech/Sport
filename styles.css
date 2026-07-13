@@ -160,10 +160,23 @@ h2, h3, p { margin-top: 0; }
 .static-exercise-image > img { transform: none !important; animation: none !important; object-fit: contain !important; }
 .empty-state { width: 100%; padding: 24px; border: 1px dashed var(--line); border-radius: 16px; color: #8d8f88; background: #fafaf7; font-size: 10px; line-height: 1.6; }
 .day-card.empty { opacity: .7; }
-.voice-button { font-size: 12px; transition: color .2s ease, background .2s ease, transform .2s ease; }
+.voice-button { color: #7d7f78; transition: color .2s ease, background .2s ease, transform .2s ease; }
+.voice-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .voice-button.recording { color: white; background: #e43d2f; transform: scale(1.08); animation: voicePulse 1s ease-in-out infinite; }
 .voice-button.transcribing { color: var(--orange); background: var(--orange-soft); animation: voicePulse .8s ease-in-out infinite; }
 @keyframes voicePulse { 50% { opacity: .55; } }
+.auth-gate-card { width: min(100%,430px); padding: 32px; border-radius: 28px; background: white; box-shadow: 0 30px 90px rgba(0,0,0,.25); text-align: center; }
+.auth-gate-brand { display: flex; align-items: center; justify-content: center; gap: 9px; margin-bottom: 28px; font-size: 12px; }
+.auth-gate-card h2 { margin: 8px 0 10px; font-size: 30px; letter-spacing: -.045em; }
+.auth-gate-card > p:not(.eyebrow) { margin: 0 auto 24px; max-width: 330px; color: #858780; font-size: 10px; line-height: 1.6; }
+.google-auth-button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; border: 0; border-radius: 14px; color: white; background: #171815; cursor: pointer; font-size: 11px; font-weight: 700; }
+.google-auth-button span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #171815; background: white; font-weight: 800; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #a0a29b; font-size: 8px; }.auth-divider::before,.auth-divider::after { content:""; flex:1; height:1px; background:var(--line); }
+.auth-email-button { width: 100%; margin-top: 10px; }
+.auth-gate-status { min-height: 17px; margin: 11px 0 0 !important; color: var(--orange) !important; font-size: 9px !important; }
+.skip-auth-button { margin: 8px 0 14px; border: 0; color: #777a73; background: transparent; cursor: pointer; font-size: 9px; text-decoration: underline; text-underline-offset: 3px; }
+.auth-gate-card > small { display: block; color: #acafa7; font-size: 7px; line-height: 1.5; }
+@media (max-width:700px) { .auth-gate-card { padding: 28px 21px; border-radius: 24px; }.auth-gate-card h2 { font-size: 26px; } }
 
 /* SPORTIK interactive motion, equipment and cloud account */
 .sync-pill { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: #777972; background: white; cursor: pointer; font-size: 9px; font-weight: 600; }
