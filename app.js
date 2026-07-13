@@ -72,6 +72,10 @@ let toastTimer;
 let cloudClient = null;
 let cloudSession = null;
 let remoteSyncTimer;
+let voiceRecorder = null;
+let voiceStream = null;
+let voiceChunks = [];
+let voiceTimer = null;
 
 function loadState() {
   try {
@@ -418,8 +422,8 @@ async function requestAIReply(message) {
     headers: { "Content-Type": "application/json", ...(cloudSession?.access_token ? { Authorization: `Bearer ${cloudSession.access_token}` } : {}) },
     body: JSON.stringify({ message, profile: state.profile, stats: state.stats, workout: getExercises().map(item => ({ id: item.id, name: item.name, sets: item.sets, reps: item.reps, weight: formatExerciseWeight(item) })), schedule: state.schedule, history: state.chat.slice(-8) })
   });
-  if (!response.ok) throw new Error(`AI ${response.status}`);
   const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || data.error || `AI ${response.status}`);
   return data;
 }
 
@@ -442,7 +446,87 @@ async function submitChat(text) {
     typing.remove();
     addAssistantMessage(error?.message === "AUTH_REQUIRED"
       ? "Чтобы я мог безопасно создать и сохранить ваш персональный план, сначала войдите в аккаунт в разделе «Профиль»."
-      : `${getCoachReply(clean)} Сейчас отвечаю в автономном режиме — облачный AI временно недоступен.`);
+      : `${getCoachReply(clean)} Облачный AI временно недоступен: ${error?.message || "неизвестная ошибка"}.`);
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function resetVoiceButton() {
+  const button = document.getElementById("voiceBtn");
+  button.classList.remove("recording", "transcribing");
+  button.textContent = "●";
+  button.setAttribute("aria-label", "Записать голосовое сообщение");
+  document.getElementById("chatInput").placeholder = "Спросить тренера…";
+}
+
+async function transcribeVoice(blob) {
+  const button = document.getElementById("voiceBtn");
+  button.classList.remove("recording");
+  button.classList.add("transcribing");
+  button.textContent = "…";
+  document.getElementById("chatInput").placeholder = "Распознаю голос…";
+  try {
+    const audio = await blobToBase64(blob);
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cloudSession.access_token}` },
+      body: JSON.stringify({ audio, mimeType: blob.type || "audio/webm" })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || data.error || "Не удалось распознать речь");
+    document.getElementById("chatInput").value = data.text;
+    await submitChat(data.text);
+  } catch (error) {
+    showToast(error?.message || "Не удалось обработать голосовое сообщение");
+  } finally {
+    resetVoiceButton();
+  }
+}
+
+function stopVoiceRecording() {
+  clearTimeout(voiceTimer);
+  if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+}
+
+async function toggleVoiceRecording() {
+  if (voiceRecorder?.state === "recording") return stopVoiceRecording();
+  if (!cloudSession?.access_token) {
+    showToast("Войдите в аккаунт, чтобы использовать голосовой ввод");
+    switchPage("profile");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return showToast("Запись голоса не поддерживается этим браузером");
+  try {
+    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const candidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+    const mimeType = candidates.find(type => MediaRecorder.isTypeSupported(type));
+    voiceChunks = [];
+    voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+    voiceRecorder.ondataavailable = event => { if (event.data.size) voiceChunks.push(event.data); };
+    voiceRecorder.onstop = async () => {
+      voiceStream?.getTracks().forEach(track => track.stop());
+      const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || mimeType || "audio/webm" });
+      voiceRecorder = null;
+      if (blob.size > 100) await transcribeVoice(blob); else resetVoiceButton();
+    };
+    voiceRecorder.start(250);
+    const button = document.getElementById("voiceBtn");
+    button.classList.add("recording");
+    button.textContent = "■";
+    button.setAttribute("aria-label", "Остановить запись");
+    document.getElementById("chatInput").placeholder = "Говорите… Нажмите ■ для отправки";
+    voiceTimer = setTimeout(stopVoiceRecording, 60_000);
+  } catch (error) {
+    resetVoiceButton();
+    showToast(error?.name === "NotAllowedError" ? "Разрешите доступ к микрофону в настройках браузера" : "Не удалось включить микрофон");
   }
 }
 
@@ -609,6 +693,7 @@ function bindEvents() {
     event.preventDefault();
     submitChat(document.getElementById("chatInput").value);
   });
+  document.getElementById("voiceBtn").addEventListener("click", toggleVoiceRecording);
   document.querySelectorAll("#quickPrompts button").forEach(button => button.addEventListener("click", () => submitChat(button.textContent)));
   document.getElementById("clearChatBtn").addEventListener("click", () => {
     const initial = document.querySelector("#chatMessages .message:first-child");
@@ -656,6 +741,7 @@ function bindEvents() {
   document.getElementById("emailLoginBtn").addEventListener("click", loginWithEmail);
   document.getElementById("googleLoginBtn").addEventListener("click", loginWithGoogle);
   document.getElementById("logoutBtn").addEventListener("click", async () => {
+    stopVoiceRecording();
     if (cloudClient) await cloudClient.auth.signOut();
     cloudSession = null;
     state = structuredClone(defaultState);
