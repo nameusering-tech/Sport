@@ -4,7 +4,7 @@ const MIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a
 const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
 
 const defaultState = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   onboarded: false,
   profile: {
     name: "",
@@ -89,26 +89,80 @@ let authGateSkipped = false;
 let emailCooldownUntil = 0;
 let emailCooldownTimer = null;
 
+function parseScheduleDay(value) {
+  if (Number.isInteger(value) && value >= 0 && value <= 6) return value;
+  const text = String(value ?? "").trim().toLowerCase().replaceAll("ё", "е");
+  if (/^[0-6]$/.test(text)) return Number(text);
+  const weekdays = [
+    { day: 0, names: ["пн", "понедельник", "mon", "monday"] },
+    { day: 1, names: ["вт", "вторник", "tue", "tuesday"] },
+    { day: 2, names: ["ср", "среда", "wed", "wednesday"] },
+    { day: 3, names: ["чт", "четверг", "thu", "thursday"] },
+    { day: 4, names: ["пт", "пятница", "fri", "friday"] },
+    { day: 5, names: ["сб", "суббота", "sat", "saturday"] },
+    { day: 6, names: ["вс", "воскресенье", "sun", "sunday"] }
+  ];
+  return weekdays.find(item => item.names.some(name => new RegExp(`(^|[^a-zа-я])${name}([^a-zа-я]|$)`, "i").test(text)))?.day ?? null;
+}
+
+function getBalancedScheduleDays(count) {
+  const templates = {
+    1: [0],
+    2: [0, 3],
+    3: [0, 2, 4],
+    4: [0, 1, 3, 5],
+    5: [0, 1, 2, 4, 5],
+    6: [0, 1, 2, 3, 4, 5],
+    7: [0, 1, 2, 3, 4, 5, 6]
+  };
+  return templates[Math.max(1, Math.min(7, count))];
+}
+
+function normalizeSchedule(schedule) {
+  const entries = Array.isArray(schedule) ? schedule.slice(0, 7) : [];
+  const balancedDays = getBalancedScheduleDays(entries.length || 1);
+  const usedDays = new Set();
+  return entries.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    let day = parseScheduleDay(safeItem.day);
+    if (day === null) day = parseScheduleDay(`${safeItem.title || ""} ${safeItem.time || ""}`);
+    if (day === null || usedDays.has(day)) {
+      day = balancedDays.find(candidate => !usedDays.has(candidate));
+      if (day === undefined) day = [0, 1, 2, 3, 4, 5, 6].find(candidate => !usedDays.has(candidate));
+      if (day === undefined) day = index % 7;
+    }
+    usedDays.add(day);
+    return { ...safeItem, day };
+  });
+}
+
+function upgradeSavedState(saved) {
+  const merged = {
+    ...structuredClone(defaultState),
+    ...saved,
+    profile: { ...defaultState.profile, ...saved.profile },
+    stats: { ...defaultState.stats, ...saved.stats },
+    currentWorkout: { ...defaultState.currentWorkout, ...saved.currentWorkout }
+  };
+  if (Number(saved.schemaVersion || 0) < 3) {
+    merged.stats = structuredClone(defaultState.stats);
+    merged.completedDays = [];
+    merged.workoutPlan = [];
+    merged.schedule = [];
+    merged.currentWorkout = { exercise: 0, set: 0 };
+  }
+  if (Number(saved.schemaVersion || 0) < 4) merged.schedule = normalizeSchedule(merged.schedule);
+  merged.schemaVersion = defaultState.schemaVersion;
+  return merged;
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     const saved = raw ? JSON.parse(raw) : null;
     if (!saved) return structuredClone(defaultState);
-    const merged = {
-      ...structuredClone(defaultState),
-      ...saved,
-      profile: { ...defaultState.profile, ...saved.profile },
-      stats: { ...defaultState.stats, ...saved.stats },
-      currentWorkout: { ...defaultState.currentWorkout, ...saved.currentWorkout }
-    };
-    if (Number(saved.schemaVersion || 0) < 3) {
-      merged.schemaVersion = 3;
-      merged.stats = structuredClone(defaultState.stats);
-      merged.completedDays = [];
-      merged.workoutPlan = [];
-      merged.schedule = [];
-      merged.currentWorkout = { exercise: 0, set: 0 };
-    }
+    const merged = upgradeSavedState(saved);
+    if (Number(saved.schemaVersion || 0) < defaultState.schemaVersion) localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
     return merged;
   } catch {
     return structuredClone(defaultState);
@@ -521,7 +575,7 @@ function applyCoachUpdate(update) {
   if (!nextPlan.length) return false;
   state.workoutPlan = nextPlan;
   state.planMeta = { title: String(update.plan.title || "Персональная тренировка").slice(0, 80), intensity: String(update.plan.intensity || "Адаптивная"), duration: Math.max(5, Math.min(120, Number(update.plan.duration) || 30)) };
-  state.schedule = (update.plan.schedule || []).slice(0, 7).map(item => ({ day: Math.max(0, Math.min(6, Number(item.day) || 0)), title: String(item.title || state.planMeta.title).slice(0, 80), time: String(item.time || "По плану").slice(0, 30) }));
+  state.schedule = normalizeSchedule(update.plan.schedule).map(item => ({ day: item.day, title: String(item.title || state.planMeta.title).slice(0, 80), time: String(item.time || "По плану").slice(0, 30) }));
   saveState();
   renderDashboard();
   renderWeek();
@@ -903,14 +957,8 @@ async function handleCloudSession(session) {
     const remoteState = data.state;
     const sameAccount = state.cloudUserId === session.user.id;
     if (!sameAccount || Number(remoteState.updatedAt || 0) > Number(state.updatedAt || 0)) {
-      state = { ...structuredClone(defaultState), ...remoteState, profile: { ...defaultState.profile, ...remoteState.profile }, stats: { ...defaultState.stats, ...remoteState.stats } };
-      if (Number(remoteState.schemaVersion || 0) < 3) {
-        state.schemaVersion = 3;
-        state.stats = structuredClone(defaultState.stats);
-        state.completedDays = [];
-        state.workoutPlan = [];
-        state.schedule = [];
-      }
+      const remoteNeedsUpgrade = Number(remoteState.schemaVersion || 0) < defaultState.schemaVersion;
+      state = upgradeSavedState(remoteState);
       state.cloudUserId = session.user.id;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderProfile();
@@ -920,6 +968,7 @@ async function handleCloudSession(session) {
       renderChart();
       document.getElementById("chatMessages").innerHTML = "";
       renderSavedChat();
+      if (remoteNeedsUpgrade) await syncNow();
       showToast("Прогресс загружен из облака");
     } else await syncNow();
   } else if (!error) await syncNow();
