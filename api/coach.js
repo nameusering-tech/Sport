@@ -202,7 +202,12 @@ export default async function handler(request, response) {
   const providerKey = provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY;
   const supabaseUrl = (process.env.SUPABASE_URL || "").trim().replace(/\/(?:rest|auth)\/v1\/?$/i, "").replace(/\/$/, "");
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  if (!providerKey || !supabaseUrl || !supabaseAnonKey) return response.status(503).json({ error: "Server is not configured" });
+  const missing = [
+    !providerKey ? (provider === "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY") : "",
+    !supabaseUrl ? "SUPABASE_URL" : "",
+    !supabaseAnonKey ? "SUPABASE_ANON_KEY" : ""
+  ].filter(Boolean);
+  if (missing.length) return response.status(503).json({ error: "Server is not configured", provider, missing });
 
   const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!token) return response.status(401).json({ error: "Authentication required" });
