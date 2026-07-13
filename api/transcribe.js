@@ -35,26 +35,36 @@ export default async function handler(request, response) {
   if (bytes.length < 100 || bytes.length > 6_000_000) return response.status(400).json({ error: "Audio is empty or too large" });
 
   if (provider === "gemini") {
-    const model = process.env.GEMINI_TRANSCRIBE_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash";
-    const transcriptionResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": providerKey },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: "Точно расшифруй русскую речь. Верни только произнесённый текст без комментариев, кавычек и форматирования. Контекст: домашние силовые тренировки, гантели, скамья, подходы и повторения." },
-            { inlineData: { mimeType, data: audio } }
-          ]
-        }],
-        generationConfig: { temperature: 0, maxOutputTokens: 1200 }
-      })
-    });
-    const data = await transcriptionResponse.json();
-    if (!transcriptionResponse.ok) return response.status(transcriptionResponse.status).json({ error: "Transcription failed", detail: data.error?.message });
-    const text = (data.candidates?.[0]?.content?.parts || []).map(part => part.text || "").join("").trim();
-    if (!text) return response.status(422).json({ error: "Speech was not recognized" });
-    return response.status(200).json({ text });
+    const selectedModel = process.env.GEMINI_TRANSCRIBE_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const models = [...new Set([selectedModel, "gemini-2.5-flash"])];
+    let lastData = {};
+    let lastStatus = 502;
+    for (const model of models) {
+      const transcriptionResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": providerKey },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: "Точно расшифруй русскую речь. Верни только произнесённый текст без комментариев, кавычек и форматирования. Контекст: домашние силовые тренировки, гантели, скамья, подходы и повторения." },
+              { inlineData: { mimeType, data: audio } }
+            ]
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 1200 }
+        })
+      });
+      const data = await transcriptionResponse.json();
+      if (transcriptionResponse.ok) {
+        const text = (data.candidates?.[0]?.content?.parts || []).map(part => part.text || "").join("").trim();
+        if (!text) return response.status(422).json({ error: "Speech was not recognized" });
+        return response.status(200).json({ text });
+      }
+      lastData = data;
+      lastStatus = transcriptionResponse.status;
+      if (![400, 404].includes(lastStatus)) break;
+    }
+    return response.status(lastStatus).json({ error: "Transcription failed", detail: lastData.error?.message });
   }
 
   const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";

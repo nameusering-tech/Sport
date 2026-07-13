@@ -18,7 +18,12 @@ const COACH_INSTRUCTIONS = `Ты SPORTIK Coach — внимательный ру
 - Начинай консервативно, оставляй запас повторений, повышай нагрузку постепенно по реакции пользователя. Не требуй отказных повторений и не обещай медицинский результат.
 - Не ставь диагнозы и не назначай лечение. При острой, усиливающейся, необычной боли, боли в груди, обмороке, выраженной одышке или неврологических симптомах рекомендуй прекратить тренировку и обратиться за медицинской помощью.
 - При хронических заболеваниях, беременности, восстановлении после операции или травмы проси согласовать программу с врачом или профильным специалистом.
-- Отвечай кратко, спокойно и конкретно на русском.`;
+- Отвечай кратко, спокойно и конкретно на русском.
+
+ФОРМАТ ОТВЕТА:
+Всегда возвращай только один JSON-объект без Markdown и пояснений вокруг него:
+{"reply":"короткий ответ или один следующий вопрос","replyOptions":["вариант 1","вариант 2"],"planUpdated":false,"profilePatch":{"goal":"","level":"","age":0,"frequency":0,"sessionMinutes":0,"equipmentNotes":"","limitations":""},"plan":{"title":"","intensity":"","duration":30,"exercises":[],"schedule":[]}}
+Если создаёшь план, exercises содержит объекты {"id","sets","reps","weightMode"}, schedule — объекты {"day","title","time"}. Не пропускай ни одно поле.`;
 
 const COACH_SCHEMA = {
   type: "object",
@@ -94,6 +99,30 @@ function emptyCoachResult(reply) {
   };
 }
 
+function normalizeCoachResult(value) {
+  const fallback = emptyCoachResult("");
+  const source = value && typeof value === "object" ? value : {};
+  const profilePatch = source.profilePatch && typeof source.profilePatch === "object" ? source.profilePatch : {};
+  const plan = source.plan && typeof source.plan === "object" ? source.plan : {};
+  return {
+    reply: String(source.reply || "Не удалось сформировать ответ. Попробуйте ещё раз."),
+    replyOptions: Array.isArray(source.replyOptions) ? source.replyOptions.map(String).slice(0, 13) : [],
+    planUpdated: Boolean(source.planUpdated),
+    profilePatch: { ...fallback.profilePatch, ...profilePatch },
+    plan: {
+      ...fallback.plan,
+      ...plan,
+      exercises: Array.isArray(plan.exercises) ? plan.exercises.slice(0, 10) : [],
+      schedule: Array.isArray(plan.schedule) ? plan.schedule.slice(0, 7) : []
+    }
+  };
+}
+
+function parseCoachJson(raw) {
+  const clean = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return normalizeCoachResult(JSON.parse(clean));
+}
+
 function isRateLimited(userId) {
   const now = Date.now();
   const recent = (requestBuckets.get(userId) || []).filter(timestamp => now - timestamp < 60_000);
@@ -116,31 +145,29 @@ function extractGeminiText(result) {
 }
 
 async function askGemini({ apiKey, history, prompt }) {
-  const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-  const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: COACH_INSTRUCTIONS }] },
-      contents: [
-        ...history.map(item => ({ role: item.role === "assistant" ? "model" : "user", parts: [{ text: item.content }] })),
-        { role: "user", parts: [{ text: prompt }] }
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 1000,
-        responseMimeType: "application/json",
-        responseSchema: COACH_SCHEMA
-      }
-    })
-  });
-  const data = await geminiResponse.json();
-  if (!geminiResponse.ok) {
-    const error = new Error(data.error?.message || "Gemini request failed");
-    error.status = geminiResponse.status;
-    throw error;
+  const selectedModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const models = [...new Set([selectedModel, "gemini-2.5-flash"])];
+  let lastError;
+  for (const model of models) {
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: COACH_INSTRUCTIONS }] },
+        contents: [
+          ...history.map(item => ({ role: item.role === "assistant" ? "model" : "user", parts: [{ text: item.content }] })),
+          { role: "user", parts: [{ text: prompt }] }
+        ],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1400, responseMimeType: "application/json" }
+      })
+    });
+    const data = await geminiResponse.json();
+    if (geminiResponse.ok) return extractGeminiText(data);
+    lastError = new Error(data.error?.message || "Gemini request failed");
+    lastError.status = geminiResponse.status;
+    if (![400, 404].includes(geminiResponse.status)) break;
   }
-  return extractGeminiText(data);
+  throw lastError || new Error("Gemini request failed");
 }
 
 async function askOpenAI({ apiKey, userId, history, prompt }) {
@@ -215,7 +242,7 @@ export default async function handler(request, response) {
       : await askOpenAI({ apiKey: providerKey, userId: user.id, history: compactHistory, prompt });
     if (!raw) return response.status(502).json({ error: `${provider} returned an empty response` });
     try {
-      return response.status(200).json(JSON.parse(raw));
+      return response.status(200).json(parseCoachJson(raw));
     } catch {
       return response.status(200).json(emptyCoachResult(raw));
     }
