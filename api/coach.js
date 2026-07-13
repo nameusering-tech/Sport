@@ -32,15 +32,13 @@ export default async function handler(request, response) {
   if (!openaiKey || !supabaseUrl || !supabaseAnonKey) return response.status(503).json({ error: "Server is not configured" });
 
   const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  let userId = `guest:${String(request.headers["x-forwarded-for"] || request.socket?.remoteAddress || "unknown").split(",")[0]}`;
-  if (token) {
-    const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` }
-    });
-    if (!userResponse.ok) return response.status(401).json({ error: "Invalid session" });
-    const user = await userResponse.json();
-    userId = user.id;
-  }
+  if (!token) return response.status(401).json({ error: "Authentication required" });
+  const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` }
+  });
+  if (!userResponse.ok) return response.status(401).json({ error: "Invalid session" });
+  const user = await userResponse.json();
+  const userId = user.id;
   if (isRateLimited(userId)) return response.status(429).json({ error: "Too many requests" });
 
   const { message, profile = {}, stats = {}, workout = [], schedule = [], history = [] } = request.body || {};

@@ -412,6 +412,7 @@ function applyCoachUpdate(update) {
 }
 
 async function requestAIReply(message) {
+  if (!cloudSession?.access_token) throw new Error("AUTH_REQUIRED");
   const response = await fetch("/api/coach", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(cloudSession?.access_token ? { Authorization: `Bearer ${cloudSession.access_token}` } : {}) },
@@ -437,9 +438,11 @@ async function submitChat(text) {
     typing.remove();
     const changed = applyCoachUpdate(result);
     addAssistantMessage(`${result?.reply || getCoachReply(clean)}${changed ? " План и календарь обновлены." : ""}`);
-  } catch {
+  } catch (error) {
     typing.remove();
-    addAssistantMessage(`${getCoachReply(clean)} Сейчас отвечаю в автономном режиме — облачный AI временно недоступен.`);
+    addAssistantMessage(error?.message === "AUTH_REQUIRED"
+      ? "Чтобы я мог безопасно создать и сохранить ваш персональный план, сначала войдите в аккаунт в разделе «Профиль»."
+      : `${getCoachReply(clean)} Сейчас отвечаю в автономном режиме — облачный AI временно недоступен.`);
   }
 }
 
