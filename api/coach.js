@@ -129,7 +129,8 @@ async function askGemini({ apiKey, history, prompt }) {
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: 1000,
-        responseFormat: { text: { mimeType: "application/json", schema: COACH_SCHEMA } }
+        responseMimeType: "application/json",
+        responseSchema: COACH_SCHEMA
       }
     })
   });

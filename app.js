@@ -225,8 +225,8 @@ function renderDashboard() {
   const heroNumbers = document.querySelectorAll(".hero-stats strong");
   [duration, plan.length, totalSets].forEach((value, index) => { if (heroNumbers[index]) heroNumbers[index].textContent = value; });
   const startButton = document.getElementById("startWorkoutBtn");
-  startButton.disabled = !hasPlan;
-  startButton.querySelector("span").textContent = hasPlan ? "Начать тренировку" : "Сначала создайте план с ИИ";
+  startButton.disabled = false;
+  startButton.querySelector("span").textContent = hasPlan ? "Начать тренировку" : "Создать план с тренером";
   document.querySelector(".coach-summary p").innerHTML = hasPlan ? "<strong>План создан</strong><br />Изменения ассистента сохранены автоматически" : "<strong>Начните с разговора</strong><br />План и расписание пока пусты";
   document.querySelector(".upcoming-list").innerHTML = state.schedule.length
     ? state.schedule.slice(0, 2).map(item => `<article class="upcoming-card"><div class="date-tile"><strong>${Number(item.day) + 1}</strong><span>ДЕНЬ</span></div><div class="upcoming-copy"><strong>${escapeHtml(item.title)}</strong><span>${plan.length} упражнений · ${duration} мин</span></div></article>`).join("")
@@ -294,6 +294,28 @@ function switchPage(pageName) {
   };
   headings[pageName]?.();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function openCoachPanel() {
+  switchPage("today");
+  const panel = document.querySelector(".coach-panel");
+  if (window.innerWidth <= 700) {
+    panel?.classList.add("mobile-open");
+    document.querySelectorAll(".mobile-nav .nav-item").forEach(item => item.classList.remove("active"));
+    document.getElementById("mobileCoachBtn")?.classList.add("active");
+  }
+  setTimeout(() => document.getElementById("chatInput")?.focus(), 100);
+}
+
+function handlePrimaryWorkoutAction() {
+  if (getExercises().length) return openWorkout();
+  if (!cloudSession?.user) {
+    authGateSkipped = false;
+    showAuthGate("Войдите, чтобы тренер создал и сохранил ваш персональный план.");
+    return;
+  }
+  if (!state.coachInterviewStarted) startCoachInterview();
+  else openCoachPanel();
 }
 
 function openWorkout() {
@@ -546,8 +568,8 @@ async function submitChat(text) {
     addAssistantMessage(error?.message === "AUTH_REQUIRED"
       ? "Чтобы я мог безопасно создать и сохранить ваш персональный план, сначала войдите в аккаунт в разделе «Профиль»."
       : quotaExceeded
-        ? `${getCoachReply(clean)} Голос распознан, но лимит OpenAI API исчерпан. Пополните баланс API, чтобы включить полный AI-ответ.`
-        : `${getCoachReply(clean)} Облачный AI временно недоступен: ${error?.message || "неизвестная ошибка"}.`);
+        ? "Бесплатный лимит AI временно исчерпан. Подождите немного и повторите сообщение."
+        : "Не удалось получить ответ тренера. Попробуйте отправить сообщение ещё раз через несколько секунд.");
   }
 }
 
@@ -751,12 +773,7 @@ function startCoachInterview() {
   saveState();
   addAssistantMessage("Привет! Я задам несколько коротких вопросов и затем сам создам ваш план. Начнём: какая у вас главная цель — стать сильнее, набрать мышцы, снизить вес или поддерживать форму?");
   renderReplyOptions(["Стать сильнее", "Набрать мышцы", "Снизить вес", "Поддерживать форму"]);
-  if (window.innerWidth <= 700) {
-    switchPage("today");
-    document.querySelector(".coach-panel")?.classList.add("mobile-open");
-    document.querySelectorAll(".mobile-nav .nav-item").forEach(item => item.classList.remove("active"));
-    document.getElementById("mobileCoachBtn")?.classList.add("active");
-  }
+  if (window.innerWidth <= 700) openCoachPanel();
 }
 
 function setSyncStatus(label, mode = "local") {
@@ -999,7 +1016,7 @@ function bindEvents() {
     switchPage(button.dataset.page);
   }));
 
-  document.getElementById("startWorkoutBtn").addEventListener("click", openWorkout);
+  document.getElementById("startWorkoutBtn").addEventListener("click", handlePrimaryWorkoutAction);
   document.querySelector("[data-close-modal]").addEventListener("click", closeWorkout);
   document.getElementById("workoutModal").addEventListener("click", event => { if (event.target.id === "workoutModal") closeWorkout(); });
   document.getElementById("completeSetBtn").addEventListener("click", completeSet);
@@ -1037,10 +1054,7 @@ function bindEvents() {
       document.querySelector('.mobile-nav .nav-item[data-page="today"]')?.classList.add("active");
       return;
     }
-    switchPage("today");
-    panel.classList.add("mobile-open");
-    document.querySelectorAll(".mobile-nav .nav-item").forEach(item => item.classList.remove("active"));
-    coachButton.classList.add("active");
+    openCoachPanel();
   });
 
   document.getElementById("saveProfileBtn").addEventListener("click", () => {
