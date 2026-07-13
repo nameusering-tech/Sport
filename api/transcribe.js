@@ -35,8 +35,8 @@ export default async function handler(request, response) {
   if (bytes.length < 100 || bytes.length > 6_000_000) return response.status(400).json({ error: "Audio is empty or too large" });
 
   if (provider === "gemini") {
-    const selectedModel = process.env.GEMINI_TRANSCRIBE_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const models = [...new Set([selectedModel, "gemini-2.5-flash"])];
+    const selectedModel = process.env.GEMINI_TRANSCRIBE_MODEL || process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+    const models = [...new Set(["gemini-3.1-flash-lite", selectedModel, "gemini-flash-lite-latest"])];
     let lastData = {};
     let lastStatus = 502;
     for (const model of models) {
@@ -62,7 +62,7 @@ export default async function handler(request, response) {
       }
       lastData = data;
       lastStatus = transcriptionResponse.status;
-      if (![400, 404].includes(lastStatus)) break;
+      if ([401, 403].includes(lastStatus)) break;
     }
     return response.status(lastStatus).json({ error: "Transcription failed", detail: lastData.error?.message });
   }

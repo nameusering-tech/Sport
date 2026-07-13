@@ -145,27 +145,35 @@ function extractGeminiText(result) {
 }
 
 async function askGemini({ apiKey, history, prompt }) {
-  const selectedModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const models = [...new Set([selectedModel, "gemini-2.5-flash"])];
+  const selectedModel = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  const models = [...new Set(["gemini-3.1-flash-lite", selectedModel, "gemini-flash-lite-latest"])];
   let lastError;
   for (const model of models) {
-    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: COACH_INSTRUCTIONS }] },
-        contents: [
-          ...history.map(item => ({ role: item.role === "assistant" ? "model" : "user", parts: [{ text: item.content }] })),
-          { role: "user", parts: [{ text: prompt }] }
-        ],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 1400, responseMimeType: "application/json" }
-      })
-    });
-    const data = await geminiResponse.json();
-    if (geminiResponse.ok) return extractGeminiText(data);
-    lastError = new Error(data.error?.message || "Gemini request failed");
-    lastError.status = geminiResponse.status;
-    if (![400, 404].includes(geminiResponse.status)) break;
+    try {
+      const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: COACH_INSTRUCTIONS }] },
+          contents: [
+            ...history.map(item => ({ role: item.role === "assistant" ? "model" : "user", parts: [{ text: item.content }] })),
+            { role: "user", parts: [{ text: prompt }] }
+          ],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 1400, responseMimeType: "application/json" }
+        })
+      });
+      const data = await geminiResponse.json();
+      if (geminiResponse.ok) {
+        const text = extractGeminiText(data);
+        if (text) return text;
+        lastError = Object.assign(new Error("Gemini returned an empty response"), { status: 502 });
+        continue;
+      }
+      lastError = Object.assign(new Error(data.error?.message || "Gemini request failed"), { status: geminiResponse.status });
+      if ([401, 403].includes(geminiResponse.status)) break;
+    } catch (error) {
+      lastError = Object.assign(error, { status: error.status || 502 });
+    }
   }
   throw lastError || new Error("Gemini request failed");
 }

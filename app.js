@@ -1163,7 +1163,9 @@ function init() {
   bindEvents();
   showAuthGate("Проверяем сохранённый вход…");
   initCloud();
-  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("service-worker.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("service-worker.js").then(registration => registration.update()).catch(() => {});
+  }
 }
 
 init();
