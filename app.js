@@ -2,28 +2,31 @@ const STORAGE_KEY = "sportik-fitness-v2";
 const LEGACY_STORAGE_KEY = "forma-fitness-v1";
 
 const defaultState = {
+  schemaVersion: 3,
   onboarded: false,
   profile: {
-    name: "Алексей",
-    age: 31,
-    height: 181,
-    weight: 78,
-    level: "Средний",
-    goal: "Стать сильнее",
-    frequency: 3,
+    name: "",
+    age: 0,
+    height: 0,
+    weight: 0,
+    level: "Начинающий",
+    goal: "Не выбрана",
+    frequency: 0,
     dumbbellWeight: 5,
     dumbbellCount: 2,
     notes: ""
   },
-  stats: { workouts: 18, streak: 12, completed: 86 },
-  completedDays: [0, 2, 4],
+  stats: { workouts: 0, streak: 0, completed: 0, totalMinutes: 0 },
+  completedDays: [],
+  workoutPlan: [],
+  schedule: [],
   currentWorkout: { exercise: 0, set: 0 },
   chat: [],
   updatedAt: 0,
   cloudUserId: null
 };
 
-const exercises = [
+const starterExercises = [
   { id: "floor-press", name: "Жим гантелей лёжа", sets: 3, reps: "10 повторов", weightMode: "pair" },
   { id: "one-arm-row", name: "Тяга гантели в упоре", sets: 3, reps: "10 на сторону", weightMode: "single" },
   { id: "overhead-press", name: "Жим гантелей сидя", sets: 2, reps: "12 повторов", weightMode: "pair" },
@@ -44,23 +47,28 @@ const exerciseLibrary = [
   { id: "bulgarian-split-squat", name: "Болгарский сплит-присед", image: "assets/exercises/bulgarian-split-squat.png", muscles: "Ягодицы · квадрицепс · стабилизаторы", duration: "55 сек", equipment: "Скамья", steps: ["Поставьте заднюю стопу на скамью, переднюю — достаточно далеко вперёд.", "Опускайтесь вертикально, ведя заднее колено к полу.", "Надавите пяткой передней ноги и вернитесь вверх."], tip: "Сначала освойте движение без гантелей, затем добавьте по 5 кг." }
 ];
 
-const weekData = [
-  { name: "ПН", date: 6, type: "Верх тела", status: "done" },
-  { name: "ВТ", date: 7, type: "Восстановление", status: "rest" },
-  { name: "СР", date: 8, type: "Ноги", status: "done" },
-  { name: "ЧТ", date: 9, type: "Мобилити", status: "rest" },
-  { name: "ПТ", date: 10, type: "Всё тело", status: "done" },
-  { name: "СБ", date: 11, type: "Отдых", status: "rest" },
-  { name: "ВС", date: 12, type: "Верх + кор", status: "active" }
-];
+function getWeekData() {
+  const names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  return names.map((name, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    const planned = state.schedule.find(item => Number(item.day) === index);
+    return { name, date: date.getDate(), type: planned?.title || "Пусто", status: planned ? "active" : "empty" };
+  });
+}
+
+function getExercises() {
+  return Array.isArray(state.workoutPlan) ? state.workoutPlan : [];
+}
 
 let state = loadState();
 let onboardingStep = 0;
 let onboardingGoal = state.profile.goal;
 let onboardingFrequency = state.profile.frequency;
 let toastTimer;
-let motionFrame;
-let motionProgress = 0;
 let cloudClient = null;
 let cloudSession = null;
 let remoteSyncTimer;
@@ -70,13 +78,22 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     const saved = raw ? JSON.parse(raw) : null;
     if (!saved) return structuredClone(defaultState);
-    return {
+    const merged = {
       ...structuredClone(defaultState),
       ...saved,
       profile: { ...defaultState.profile, ...saved.profile },
       stats: { ...defaultState.stats, ...saved.stats },
       currentWorkout: { ...defaultState.currentWorkout, ...saved.currentWorkout }
     };
+    if (Number(saved.schemaVersion || 0) < 3) {
+      merged.schemaVersion = 3;
+      merged.stats = structuredClone(defaultState.stats);
+      merged.completedDays = [];
+      merged.workoutPlan = [];
+      merged.schedule = [];
+      merged.currentWorkout = { exercise: 0, set: 0 };
+    }
+    return merged;
   } catch {
     return structuredClone(defaultState);
   }
@@ -109,6 +126,7 @@ function showToast(text) {
 }
 
 function renderWeek() {
+  const weekData = getWeekData();
   const strip = document.getElementById("weekStrip");
   strip.innerHTML = weekData.map((day, index) => `
     <button class="day-card ${day.status}" data-day="${index}" aria-label="${day.name}, ${day.date} июля, ${day.type}">
@@ -123,10 +141,8 @@ function renderWeek() {
       const day = weekData[Number(card.dataset.day)];
       if (day.status === "active") {
         document.getElementById("startWorkoutBtn").click();
-      } else if (day.status === "done") {
-        showToast(`${day.type}: тренировка выполнена`);
       } else {
-        showToast(`${day.type}: день восстановления`);
+        showToast("Этот день пока пуст — попросите тренера составить расписание");
       }
     });
   });
@@ -134,21 +150,13 @@ function renderWeek() {
 
 function renderPlanBoard() {
   const board = document.getElementById("planBoard");
-  const tasks = [
-    [{ type: "workout done", time: "18:30", title: "Верх тела", meta: "38 мин · 5 упражнений" }],
-    [{ type: "recovery", time: "В ТЕЧЕНИЕ ДНЯ", title: "Восстановление", meta: "8 000 шагов · растяжка" }],
-    [{ type: "workout done", time: "19:00", title: "Ноги & ягодицы", meta: "42 мин · 6 упражнений" }],
-    [{ type: "recovery", time: "08:30", title: "Мобилити", meta: "15 мин · всё тело" }],
-    [{ type: "workout done", time: "18:00", title: "Всё тело", meta: "45 мин · 6 упражнений" }],
-    [{ type: "recovery", time: "СВОБОДНЫЙ ДЕНЬ", title: "Полный отдых", meta: "Фокус на сне и питании" }],
-    [{ type: "workout", time: "11:00", title: "Верх тела & кор", meta: "38 мин · 5 упражнений" }, { type: "recovery", time: "ВЕЧЕРОМ", title: "Лёгкая прогулка", meta: "20–30 минут" }]
-  ];
+  const weekData = getWeekData();
 
   board.innerHTML = weekData.map((day, i) => `
     <div class="plan-column ${i === 6 ? "today" : ""}">
       <div class="plan-column-head"><span>${day.name}</span><strong>${day.date}</strong></div>
       <div class="plan-day-body">
-        ${tasks[i].map(task => `<article class="plan-item ${task.type}"><small>${task.time}</small><strong>${task.title}</strong><span>${task.meta}</span></article>`).join("")}
+        ${state.schedule.filter(item => Number(item.day) === i).map(task => `<article class="plan-item workout"><small>${escapeHtml(task.time || "ПО ПЛАНУ")}</small><strong>${escapeHtml(task.title)}</strong><span>${getExercises().length} упражнений</span></article>`).join("")}
         <button class="plan-add" data-plan-day="${i}">＋ Добавить заметку</button>
       </div>
     </div>`).join("");
@@ -168,7 +176,7 @@ function renderExerciseLibrary() {
   const library = document.getElementById("exerciseLibrary");
   library.innerHTML = exerciseLibrary.map((exercise, index) => `
     <button class="exercise-card" data-exercise-id="${exercise.id}" aria-label="Открыть технику: ${exercise.name}">
-      <span class="exercise-thumb"><img src="${exercise.image}" alt="" loading="lazy" /><i>▶</i></span>
+      <span class="exercise-thumb"><img src="${exercise.image}" alt="${escapeHtml(exercise.name)}" loading="lazy" /></span>
       <span class="exercise-card-copy"><small>${String(index + 1).padStart(2, "0")} · ${exercise.equipment}</small><strong>${exercise.name}</strong><span>${exercise.muscles}</span></span>
     </button>`).join("");
   library.querySelectorAll(".exercise-card").forEach(card => card.addEventListener("click", () => openTechnique(card.dataset.exerciseId)));
@@ -182,53 +190,35 @@ function openTechnique(id) {
   document.getElementById("techniqueMuscles").textContent = exercise.muscles;
   document.getElementById("techniqueTip").textContent = exercise.tip;
   document.getElementById("techniqueSteps").innerHTML = exercise.steps.map((step, index) => `<div><span>${index + 1}</span><p>${escapeHtml(step)}</p></div>`).join("");
-  motionProgress = 0;
-  document.getElementById("techniqueRange").value = 0;
-  document.getElementById("techniqueImageWrap").style.setProperty("--motion", 0);
-  document.getElementById("techniqueImageWrap").classList.add("playing");
-  document.getElementById("techniquePlayBtn").innerHTML = "<span>Ⅱ</span> Пауза";
   document.getElementById("techniqueModal").classList.remove("hidden");
   document.body.style.overflow = "hidden";
-  startMotionLoop();
 }
 
 function closeTechnique() {
   document.getElementById("techniqueModal").classList.add("hidden");
-  cancelAnimationFrame(motionFrame);
   if (document.getElementById("workoutModal").classList.contains("hidden")) document.body.style.overflow = "";
 }
 
-function setMotionProgress(value, target = "technique") {
-  motionProgress = Number(value);
-  const wrap = document.getElementById(target === "workout" ? "workoutMotionPlayer" : "techniqueImageWrap");
-  const range = document.getElementById(target === "workout" ? "workoutMotionRange" : "techniqueRange");
-  wrap.style.setProperty("--motion", motionProgress / 100);
-  range.value = motionProgress;
-  const phase = motionProgress < 35 ? "СТАРТ" : motionProgress > 65 ? "ФИНИШ" : "ДВИЖЕНИЕ";
-  if (target === "workout") document.getElementById("workoutMotionPhase").textContent = phase;
-  else document.getElementById("techniquePhase").textContent = phase;
-}
-
-function startMotionLoop() {
-  cancelAnimationFrame(motionFrame);
-  let lastTime = performance.now();
-  let direction = 1;
-  const tick = time => {
-    const wrap = document.getElementById("techniqueImageWrap");
-    if (!wrap.classList.contains("playing") || document.getElementById("techniqueModal").classList.contains("hidden")) return;
-    const delta = Math.min(40, time - lastTime);
-    lastTime = time;
-    motionProgress += direction * delta * 0.025;
-    if (motionProgress >= 100) { motionProgress = 100; direction = -1; }
-    if (motionProgress <= 0) { motionProgress = 0; direction = 1; }
-    setMotionProgress(motionProgress);
-    motionFrame = requestAnimationFrame(tick);
-  };
-  motionFrame = requestAnimationFrame(tick);
+function renderDashboard() {
+  const plan = getExercises();
+  const hasPlan = plan.length > 0;
+  const totalSets = plan.reduce((sum, item) => sum + Number(item.sets || 0), 0);
+  const duration = Number(state.planMeta?.duration || 0);
+  document.querySelector(".hero-copy h2").innerHTML = hasPlan ? escapeHtml(state.planMeta?.title || "Персональная тренировка") : "План пока<br />не создан";
+  document.querySelector(".hero-copy > p").textContent = hasPlan ? `Силовая · ${state.planMeta?.intensity || "Адаптивная нагрузка"}` : "Расскажите SPORTIK Coach о себе — он заполнит план";
+  const heroNumbers = document.querySelectorAll(".hero-stats strong");
+  [duration, plan.length, totalSets].forEach((value, index) => { if (heroNumbers[index]) heroNumbers[index].textContent = value; });
+  const startButton = document.getElementById("startWorkoutBtn");
+  startButton.disabled = !hasPlan;
+  startButton.querySelector("span").textContent = hasPlan ? "Начать тренировку" : "Сначала создайте план с ИИ";
+  document.querySelector(".coach-summary p").innerHTML = hasPlan ? "<strong>План создан</strong><br />Изменения ассистента сохранены автоматически" : "<strong>Начните с разговора</strong><br />План и расписание пока пусты";
+  document.querySelector(".upcoming-list").innerHTML = state.schedule.length
+    ? state.schedule.slice(0, 2).map(item => `<article class="upcoming-card"><div class="date-tile"><strong>${Number(item.day) + 1}</strong><span>ДЕНЬ</span></div><div class="upcoming-copy"><strong>${escapeHtml(item.title)}</strong><span>${plan.length} упражнений · ${duration} мин</span></div></article>`).join("")
+    : '<article class="empty-state">Здесь появятся тренировки, которые составит SPORTIK Coach.</article>';
 }
 
 function renderChart() {
-  const values = [42, 58, 44, 72, 63, 84, 68, 92];
+  const values = Array(8).fill(0);
   const chart = document.getElementById("barChart");
   chart.innerHTML = values.map((value, i) => `<div class="bar-group"><div class="bar ${i === values.length - 1 ? "current" : ""}" style="height:${value}%"></div><span>${i + 1}</span></div>`).join("");
 }
@@ -236,16 +226,17 @@ function renderChart() {
 function renderProfile() {
   const { profile, stats } = state;
   const firstLetter = profile.name.trim().charAt(0).toUpperCase() || "Я";
-  document.getElementById("sidebarName").textContent = profile.name;
+  document.getElementById("sidebarName").textContent = profile.name || "Новый пользователь";
   document.getElementById("sidebarStreak").textContent = stats.streak;
-  document.getElementById("profileDisplayName").textContent = profile.name;
-  document.querySelector(".goal-tag").textContent = `Цель: ${profile.goal.toLowerCase()}`;
+  document.getElementById("profileDisplayName").textContent = profile.name || "Профиль не заполнен";
+  document.querySelector(".goal-tag").textContent = profile.goal === "Не выбрана" ? "Цель не выбрана" : `Цель: ${profile.goal.toLowerCase()}`;
   document.getElementById("profileAvatar").textContent = firstLetter;
   document.querySelector(".mobile-avatar").textContent = firstLetter;
   document.querySelectorAll(".avatar").forEach(avatar => avatar.textContent = firstLetter);
   document.getElementById("metricWorkouts").textContent = stats.workouts;
   document.getElementById("metricStreak").textContent = stats.streak;
   document.getElementById("metricPercent").textContent = `${stats.completed}%`;
+  document.getElementById("metricTotalTime").innerHTML = `${Number(stats.totalMinutes || 0)}<span>м</span>`;
 
   const form = document.getElementById("profileForm");
   for (const [key, value] of Object.entries(profile)) {
@@ -257,7 +248,7 @@ function renderProfile() {
 function updateGreeting() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Доброе утро" : hour < 18 ? "Добрый день" : "Добрый вечер";
-  document.getElementById("pageTitle").textContent = `${greeting}, ${state.profile.name}`;
+  document.getElementById("pageTitle").textContent = state.profile.name ? `${greeting}, ${state.profile.name}` : greeting;
   const date = new Date();
   const formatted = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long" }).format(date);
   document.getElementById("todayDate").textContent = formatted.toUpperCase();
@@ -283,6 +274,7 @@ function switchPage(pageName) {
 }
 
 function openWorkout() {
+  if (!getExercises().length) return showToast("Сначала попросите SPORTIK Coach составить план");
   state.currentWorkout = { exercise: 0, set: 0 };
   renderWorkout();
   document.getElementById("workoutModal").classList.remove("hidden");
@@ -295,6 +287,7 @@ function closeWorkout() {
 }
 
 function renderWorkout() {
+  const exercises = getExercises();
   const { exercise: exerciseIndex, set } = state.currentWorkout;
   const exercise = exercises[exerciseIndex];
   const reference = getLibraryExercise(exercise.id);
@@ -304,8 +297,6 @@ function renderWorkout() {
   document.getElementById("workoutExerciseMeta").textContent = `${exercise.sets} подхода · ${exercise.reps} · ${exerciseWeight}`;
   document.getElementById("workoutExerciseImage").src = reference.image;
   document.getElementById("workoutExerciseImage").alt = `Техника: ${exercise.name}`;
-  document.getElementById("workoutMotionRange").value = 0;
-  document.getElementById("workoutMotionPlayer").style.setProperty("--motion", 0);
   document.getElementById("workoutProgressBar").style.width = `${((exerciseIndex + set / exercise.sets) / exercises.length) * 100}%`;
   document.getElementById("prevExerciseBtn").disabled = exerciseIndex === 0 && set === 0;
   document.getElementById("completeSetBtn").textContent = exerciseIndex === exercises.length - 1 && set === exercise.sets - 1 ? "Завершить тренировку" : "Завершить подход";
@@ -316,13 +307,16 @@ function renderWorkout() {
 }
 
 function completeSet() {
+  const exercises = getExercises();
   const current = state.currentWorkout;
   const exercise = exercises[current.exercise];
   current.set += 1;
   if (current.set >= exercise.sets) {
     if (current.exercise >= exercises.length - 1) {
       state.stats.workouts += 1;
-      state.stats.completed = Math.min(100, state.stats.completed + 1);
+      state.stats.streak += 1;
+      state.stats.totalMinutes += Number(state.planMeta?.duration || 0);
+      state.stats.completed = 100;
       saveState();
       renderProfile();
       closeWorkout();
@@ -338,6 +332,7 @@ function completeSet() {
 }
 
 function previousExercise() {
+  const exercises = getExercises();
   const current = state.currentWorkout;
   if (current.set > 0) current.set -= 1;
   else if (current.exercise > 0) {
@@ -395,16 +390,36 @@ function getCoachReply(input) {
   return "Я учту это в вашем плане. Сейчас оптимально сохранить сегодняшнюю тренировку, а нагрузку оценить после первого подхода. Хотите изменить длительность, вес или набор упражнений?";
 }
 
+function applyCoachUpdate(update) {
+  if (!update?.planUpdated || !update.plan) return false;
+  const allowedIds = new Set(exerciseLibrary.map(item => item.id));
+  const nextPlan = (update.plan.exercises || []).filter(item => allowedIds.has(item.id)).map(item => ({
+    id: item.id,
+    name: getLibraryExercise(item.id).name,
+    sets: Math.max(1, Math.min(6, Number(item.sets) || 1)),
+    reps: String(item.reps || "10 повторов").slice(0, 40),
+    weightMode: ["body", "single", "pair"].includes(item.weightMode) ? item.weightMode : "body"
+  }));
+  if (!nextPlan.length) return false;
+  state.workoutPlan = nextPlan;
+  state.planMeta = { title: String(update.plan.title || "Персональная тренировка").slice(0, 80), intensity: String(update.plan.intensity || "Адаптивная"), duration: Math.max(5, Math.min(120, Number(update.plan.duration) || 30)) };
+  state.schedule = (update.plan.schedule || []).slice(0, 7).map(item => ({ day: Math.max(0, Math.min(6, Number(item.day) || 0)), title: String(item.title || state.planMeta.title).slice(0, 80), time: String(item.time || "По плану").slice(0, 30) }));
+  saveState();
+  renderDashboard();
+  renderWeek();
+  renderPlanBoard();
+  return true;
+}
+
 async function requestAIReply(message) {
-  if (!cloudSession?.access_token) return null;
   const response = await fetch("/api/coach", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cloudSession.access_token}` },
-    body: JSON.stringify({ message, profile: state.profile, stats: state.stats, workout: exercises.map(item => ({ name: item.name, sets: item.sets, reps: item.reps, weight: formatExerciseWeight(item) })), history: state.chat.slice(-8) })
+    headers: { "Content-Type": "application/json", ...(cloudSession?.access_token ? { Authorization: `Bearer ${cloudSession.access_token}` } : {}) },
+    body: JSON.stringify({ message, profile: state.profile, stats: state.stats, workout: getExercises().map(item => ({ id: item.id, name: item.name, sets: item.sets, reps: item.reps, weight: formatExerciseWeight(item) })), schedule: state.schedule, history: state.chat.slice(-8) })
   });
   if (!response.ok) throw new Error(`AI ${response.status}`);
   const data = await response.json();
-  return data.reply || null;
+  return data;
 }
 
 async function submitChat(text) {
@@ -418,9 +433,10 @@ async function submitChat(text) {
   document.getElementById("chatMessages").appendChild(typing);
   document.getElementById("chatMessages").scrollTop = document.getElementById("chatMessages").scrollHeight;
   try {
-    const aiReply = await requestAIReply(clean);
+    const result = await requestAIReply(clean);
     typing.remove();
-    addAssistantMessage(aiReply || getCoachReply(clean));
+    const changed = applyCoachUpdate(result);
+    addAssistantMessage(`${result?.reply || getCoachReply(clean)}${changed ? " План и календарь обновлены." : ""}`);
   } catch {
     typing.remove();
     addAssistantMessage(`${getCoachReply(clean)} Сейчас отвечаю в автономном режиме — облачный AI временно недоступен.`);
@@ -491,10 +507,20 @@ async function handleCloudSession(session) {
     const sameAccount = state.cloudUserId === session.user.id;
     if (!sameAccount || Number(remoteState.updatedAt || 0) > Number(state.updatedAt || 0)) {
       state = { ...structuredClone(defaultState), ...remoteState, profile: { ...defaultState.profile, ...remoteState.profile }, stats: { ...defaultState.stats, ...remoteState.stats } };
+      if (Number(remoteState.schemaVersion || 0) < 3) {
+        state.schemaVersion = 3;
+        state.stats = structuredClone(defaultState.stats);
+        state.completedDays = [];
+        state.workoutPlan = [];
+        state.schedule = [];
+      }
       state.cloudUserId = session.user.id;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderProfile();
+      renderDashboard();
       renderWeek();
+      renderPlanBoard();
+      renderChart();
       document.getElementById("chatMessages").innerHTML = "";
       renderSavedChat();
       showToast("Прогресс загружен из облака");
@@ -543,10 +569,10 @@ function showOnboardingStep(step) {
 
 function finishOnboarding(useInputs = true) {
   if (useInputs) {
-    state.profile.name = document.getElementById("onboardingName").value.trim() || "Алексей";
-    state.profile.age = Number(document.getElementById("onboardingAge").value) || 31;
-    state.profile.height = Number(document.getElementById("onboardingHeight").value) || 181;
-    state.profile.weight = Number(document.getElementById("onboardingWeight").value) || 78;
+    state.profile.name = document.getElementById("onboardingName").value.trim();
+    state.profile.age = Number(document.getElementById("onboardingAge").value) || 0;
+    state.profile.height = Number(document.getElementById("onboardingHeight").value) || 0;
+    state.profile.weight = Number(document.getElementById("onboardingWeight").value) || 0;
     state.profile.goal = onboardingGoal;
     state.profile.frequency = onboardingFrequency;
   }
@@ -555,7 +581,8 @@ function finishOnboarding(useInputs = true) {
   renderProfile();
   document.getElementById("onboardingModal").classList.add("hidden");
   document.body.style.overflow = "";
-  showToast("Персональный план готов");
+  renderDashboard();
+  showToast("Данные сохранены — теперь составьте план вместе с SPORTIK Coach");
 }
 
 function bindEvents() {
@@ -569,31 +596,12 @@ function bindEvents() {
   document.getElementById("workoutModal").addEventListener("click", event => { if (event.target.id === "workoutModal") closeWorkout(); });
   document.getElementById("completeSetBtn").addEventListener("click", completeSet);
   document.getElementById("prevExerciseBtn").addEventListener("click", previousExercise);
-  document.getElementById("openTechniqueBtn").addEventListener("click", () => openTechnique(exercises[state.currentWorkout.exercise].id));
+  document.getElementById("openTechniqueBtn").addEventListener("click", () => {
+    const exercise = getExercises()[state.currentWorkout.exercise];
+    if (exercise) openTechnique(exercise.id);
+  });
   document.getElementById("closeTechniqueBtn").addEventListener("click", closeTechnique);
   document.getElementById("techniqueModal").addEventListener("click", event => { if (event.target.id === "techniqueModal") closeTechnique(); });
-  document.getElementById("techniqueRange").addEventListener("input", event => {
-    document.getElementById("techniqueImageWrap").classList.remove("playing");
-    document.getElementById("techniquePlayBtn").innerHTML = "<span>▶</span> Продолжить";
-    setMotionProgress(event.target.value);
-  });
-  document.getElementById("techniquePlayBtn").addEventListener("click", () => {
-    const wrap = document.getElementById("techniqueImageWrap");
-    const playing = wrap.classList.toggle("playing");
-    document.getElementById("techniquePlayBtn").innerHTML = playing ? "<span>Ⅱ</span> Пауза" : "<span>▶</span> Продолжить";
-    if (playing) startMotionLoop(); else cancelAnimationFrame(motionFrame);
-  });
-  document.getElementById("workoutMotionRange").addEventListener("input", event => {
-    document.getElementById("workoutMotionPlayer").classList.remove("playing");
-    document.getElementById("workoutMotionToggle").textContent = "▶";
-    setMotionProgress(event.target.value, "workout");
-  });
-  document.getElementById("workoutMotionToggle").addEventListener("click", () => {
-    const player = document.getElementById("workoutMotionPlayer");
-    const playing = player.classList.toggle("playing");
-    document.getElementById("workoutMotionToggle").textContent = playing ? "Ⅱ" : "▶";
-  });
-
   document.getElementById("chatForm").addEventListener("submit", event => {
     event.preventDefault();
     submitChat(document.getElementById("chatInput").value);
@@ -615,7 +623,7 @@ function bindEvents() {
     const data = new FormData(document.getElementById("profileForm"));
     state.profile = {
       ...state.profile,
-      name: String(data.get("name") || "Алексей").trim(),
+      name: String(data.get("name") || "").trim(),
       age: Number(data.get("age")),
       height: Number(data.get("height")),
       weight: Number(data.get("weight")),
@@ -640,15 +648,24 @@ function bindEvents() {
     }, 250);
   });
 
-  document.getElementById("notificationBtn").addEventListener("click", () => showToast("На сегодня одно напоминание: тренировка в 11:00"));
+  document.getElementById("notificationBtn").addEventListener("click", () => showToast(state.schedule.length ? "Расписание активно" : "Напоминаний пока нет"));
   document.getElementById("syncStatusBtn").addEventListener("click", () => switchPage("profile"));
   document.getElementById("emailLoginBtn").addEventListener("click", loginWithEmail);
   document.getElementById("googleLoginBtn").addEventListener("click", loginWithGoogle);
   document.getElementById("logoutBtn").addEventListener("click", async () => {
     if (cloudClient) await cloudClient.auth.signOut();
     cloudSession = null;
+    state = structuredClone(defaultState);
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById("chatMessages").innerHTML = "";
+    renderProfile();
+    renderDashboard();
+    renderWeek();
+    renderPlanBoard();
+    renderChart();
     updateAuthUI();
     setSyncStatus("Войти", "ready");
+    showToast("Вы вышли из аккаунта");
   });
 
   document.querySelectorAll("[data-choice]").forEach(group => {
@@ -681,6 +698,7 @@ function init() {
   renderExerciseLibrary();
   renderChart();
   renderProfile();
+  renderDashboard();
   renderSavedChat();
   bindEvents();
   initCloud();
