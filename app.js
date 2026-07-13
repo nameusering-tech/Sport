@@ -284,6 +284,7 @@ function switchPage(pageName) {
   document.querySelectorAll(".page").forEach(page => page.classList.toggle("active", page.id === `page-${pageName}`));
   document.querySelectorAll(".nav-item[data-page]").forEach(item => item.classList.toggle("active", item.dataset.page === pageName));
   document.querySelector(".coach-panel")?.classList.remove("mobile-open");
+  document.getElementById("mobileCoachBtn")?.classList.remove("active");
 
   const headings = {
     today: () => updateGreeting(),
@@ -750,7 +751,12 @@ function startCoachInterview() {
   saveState();
   addAssistantMessage("Привет! Я задам несколько коротких вопросов и затем сам создам ваш план. Начнём: какая у вас главная цель — стать сильнее, набрать мышцы, снизить вес или поддерживать форму?");
   renderReplyOptions(["Стать сильнее", "Набрать мышцы", "Снизить вес", "Поддерживать форму"]);
-  if (window.innerWidth <= 700) document.querySelector(".coach-panel")?.classList.add("mobile-open");
+  if (window.innerWidth <= 700) {
+    switchPage("today");
+    document.querySelector(".coach-panel")?.classList.add("mobile-open");
+    document.querySelectorAll(".mobile-nav .nav-item").forEach(item => item.classList.remove("active"));
+    document.getElementById("mobileCoachBtn")?.classList.add("active");
+  }
 }
 
 function setSyncStatus(label, mode = "local") {
@@ -1023,7 +1029,18 @@ function bindEvents() {
     if (cloudSession?.user) startCoachInterview();
   });
   document.getElementById("mobileCoachBtn").addEventListener("click", () => {
-    document.querySelector(".coach-panel").classList.toggle("mobile-open");
+    const panel = document.querySelector(".coach-panel");
+    const coachButton = document.getElementById("mobileCoachBtn");
+    if (panel.classList.contains("mobile-open")) {
+      panel.classList.remove("mobile-open");
+      coachButton.classList.remove("active");
+      document.querySelector('.mobile-nav .nav-item[data-page="today"]')?.classList.add("active");
+      return;
+    }
+    switchPage("today");
+    panel.classList.add("mobile-open");
+    document.querySelectorAll(".mobile-nav .nav-item").forEach(item => item.classList.remove("active"));
+    coachButton.classList.add("active");
   });
 
   document.getElementById("saveProfileBtn").addEventListener("click", () => {
@@ -1116,6 +1133,7 @@ function bindEvents() {
       closeTechnique();
       closeWorkout();
       document.querySelector(".coach-panel")?.classList.remove("mobile-open");
+      document.getElementById("mobileCoachBtn")?.classList.remove("active");
     }
   });
 }
