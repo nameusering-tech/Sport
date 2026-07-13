@@ -12,10 +12,14 @@ const defaultState = {
     height: 0,
     weight: 0,
     level: "Начинающий",
+    levelConfirmed: false,
     goal: "Не выбрана",
     frequency: 0,
     dumbbellWeight: 5,
     dumbbellCount: 2,
+    sessionMinutes: 0,
+    equipmentNotes: "",
+    equipmentConfirmed: false,
     notes: ""
   },
   stats: { workouts: 0, streak: 0, completed: 0, totalMinutes: 0 },
@@ -79,6 +83,7 @@ let voiceStream = null;
 let voiceChunks = [];
 let voiceTimer = null;
 let speechRecognition = null;
+let voiceSubmitAfterStop = false;
 let authGateSkipped = false;
 let emailCooldownUntil = 0;
 let emailCooldownTimer = null;
@@ -252,6 +257,12 @@ function renderProfile() {
   for (const [key, value] of Object.entries(profile)) {
     if (form.elements[key]) form.elements[key].value = value;
   }
+  if (profile.equipmentConfirmed) {
+    const equipment = String(profile.equipmentNotes || "").toLowerCase();
+    form.querySelector('[name="equipment"][value="dumbbells"]').checked = /гантел/.test(equipment);
+    form.querySelector('[name="equipment"][value="bench"]').checked = /скам|табур|bench/.test(equipment);
+    form.querySelector('[name="equipment"][value="bands"]').checked = /резин|эспанд|band/.test(equipment);
+  }
   updateGreeting();
 }
 
@@ -373,6 +384,51 @@ function addAssistantMessage(text) {
   addChatMessage(text, "assistant");
 }
 
+const EQUIPMENT_REPLY_OPTIONS = new Set(["Гантели", "Штанга и блины", "Гири", "Тренировочная скамья", "Турник", "Резинки", "Эспандер", "Петли TRX", "Стул или табурет", "Рюкзак с книгами", "Бутылки с водой", "Только собственный вес", "Другое"]);
+
+function renderReplyOptions(options = []) {
+  const container = document.getElementById("quickPrompts");
+  const choices = [...new Set((Array.isArray(options) ? options : []).map(item => String(item || "").trim()).filter(Boolean))].slice(0, 13);
+  container.innerHTML = "";
+  if (!choices.length) return;
+  const multiple = choices.filter(option => EQUIPMENT_REPLY_OPTIONS.has(option)).length >= 3;
+  if (multiple) {
+    const hint = document.createElement("span");
+    hint.className = "quick-prompts-hint";
+    hint.textContent = "Можно выбрать несколько вариантов";
+    container.appendChild(hint);
+  }
+  choices.forEach(option => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => {
+      if (!multiple) return submitChat(option);
+      if (option === "Только собственный вес") {
+        container.querySelectorAll("button.option-selected").forEach(item => item.classList.remove("option-selected"));
+      } else {
+        [...container.querySelectorAll("button")].find(item => item.textContent === "Только собственный вес")?.classList.remove("option-selected");
+      }
+      button.classList.toggle("option-selected");
+      button.setAttribute("aria-pressed", String(button.classList.contains("option-selected")));
+    });
+    container.appendChild(button);
+  });
+  if (multiple) {
+    const done = document.createElement("button");
+    done.type = "button";
+    done.className = "quick-prompts-done";
+    done.textContent = "Готово →";
+    done.addEventListener("click", () => {
+      const selected = [...container.querySelectorAll("button.option-selected")].map(button => button.textContent);
+      if (!selected.length) return showToast("Выберите хотя бы один вариант");
+      submitChat(`Дома для тренировок есть: ${selected.join(", ")}.`);
+    });
+    container.appendChild(done);
+  }
+}
+
 function getCoachReply(input) {
   const text = input.toLowerCase();
   if (/20|мало времени|быстр|коротк/.test(text)) {
@@ -400,7 +456,35 @@ function getCoachReply(input) {
   return "Я учту это в вашем плане. Сейчас оптимально сохранить сегодняшнюю тренировку, а нагрузку оценить после первого подхода. Хотите изменить длительность, вес или набор упражнений?";
 }
 
+function applyCoachProfilePatch(patch) {
+  if (!patch || typeof patch !== "object") return false;
+  let changed = false;
+  const setText = (key, value) => {
+    const clean = String(value || "").trim().slice(0, 500);
+    if (clean && state.profile[key] !== clean) { state.profile[key] = clean; changed = true; }
+  };
+  const setNumber = (key, value, max) => {
+    const next = Math.max(0, Math.min(max, Number(value) || 0));
+    if (next && state.profile[key] !== next) { state.profile[key] = next; changed = true; }
+  };
+  setText("goal", patch.goal);
+  setText("level", patch.level);
+  setText("equipmentNotes", patch.equipmentNotes);
+  setText("notes", patch.limitations);
+  setNumber("age", patch.age, 120);
+  setNumber("frequency", patch.frequency, 7);
+  setNumber("sessionMinutes", patch.sessionMinutes, 120);
+  if (patch.level && !state.profile.levelConfirmed) { state.profile.levelConfirmed = true; changed = true; }
+  if (patch.equipmentNotes && !state.profile.equipmentConfirmed) { state.profile.equipmentConfirmed = true; changed = true; }
+  if (changed) {
+    saveState();
+    renderProfile();
+  }
+  return changed;
+}
+
 function applyCoachUpdate(update) {
+  applyCoachProfilePatch(update?.profilePatch);
   if (!update?.planUpdated || !update.plan) return false;
   const allowedIds = new Set(exerciseLibrary.map(item => item.id));
   const nextPlan = (update.plan.exercises || []).filter(item => allowedIds.has(item.id)).map(item => ({
@@ -426,7 +510,7 @@ async function requestAIReply(message) {
   const response = await fetch("/api/coach", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(cloudSession?.access_token ? { Authorization: `Bearer ${cloudSession.access_token}` } : {}) },
-    body: JSON.stringify({ message, profile: state.profile, stats: state.stats, workout: getExercises().map(item => ({ id: item.id, name: item.name, sets: item.sets, reps: item.reps, weight: formatExerciseWeight(item) })), schedule: state.schedule, history: state.chat.slice(-8) })
+    body: JSON.stringify({ message, profile: state.profile, stats: state.stats, workout: getExercises().map(item => ({ id: item.id, name: item.name, sets: item.sets, reps: item.reps, weight: formatExerciseWeight(item) })), schedule: state.schedule, history: state.chat.slice(0, -1).slice(-16) })
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || data.error || `AI ${response.status}`);
@@ -436,6 +520,7 @@ async function requestAIReply(message) {
 async function submitChat(text) {
   const clean = text.trim();
   if (!clean) return;
+  renderReplyOptions([]);
   addChatMessage(clean, "user");
   document.getElementById("chatInput").value = "";
   const typing = document.createElement("div");
@@ -446,8 +531,13 @@ async function submitChat(text) {
   try {
     const result = await requestAIReply(clean);
     typing.remove();
-    const changed = applyCoachUpdate(result);
-    addAssistantMessage(`${result?.reply || getCoachReply(clean)}${changed ? " План и календарь обновлены." : ""}`);
+    const planChanged = applyCoachUpdate(result);
+    let reply = result?.reply || getCoachReply(clean);
+    if (planChanged && !/мой план|создал.*план/i.test(reply)) {
+      reply = `Готово — я создал для вас персональный план. Откройте раздел «Мой план», чтобы всё проверить. ${reply}`;
+    }
+    addAssistantMessage(reply);
+    renderReplyOptions(result?.replyOptions);
   } catch (error) {
     typing.remove();
     const quotaExceeded = /quota|billing|insufficient_quota/i.test(error?.message || "");
@@ -477,7 +567,7 @@ function resetVoiceButton() {
   document.getElementById("chatInput").placeholder = "Спросить тренера…";
 }
 
-async function transcribeVoice(blob) {
+async function transcribeVoice(blob, sendAfterTranscription = false) {
   const button = document.getElementById("voiceBtn");
   button.classList.remove("recording");
   button.classList.add("transcribing");
@@ -492,8 +582,9 @@ async function transcribeVoice(blob) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || "Не удалось распознать речь");
-    document.getElementById("chatInput").value = data.text;
-    await submitChat(data.text);
+    const input = document.getElementById("chatInput");
+    input.value = `${input.value.trim()} ${data.text}`.trim();
+    if (sendAfterTranscription) await submitChat(input.value);
   } catch (error) {
     showToast(error?.message || "Не удалось обработать голосовое сообщение");
   } finally {
@@ -501,9 +592,10 @@ async function transcribeVoice(blob) {
   }
 }
 
-function stopVoiceRecording() {
+function stopVoiceRecording(sendAfterStop = false) {
+  voiceSubmitAfterStop = sendAfterStop;
   if (speechRecognition) {
-    if (typeof speechRecognition._sportikFinish === "function") speechRecognition._sportikFinish();
+    if (typeof speechRecognition._sportikFinish === "function") speechRecognition._sportikFinish(sendAfterStop);
     else speechRecognition.stop();
     return;
   }
@@ -516,7 +608,8 @@ function startBrowserSpeechRecognition() {
   if (!Recognition) return false;
 
   const recognition = new Recognition();
-  let finalText = "";
+  let finalText = document.getElementById("chatInput").value.trim();
+  if (finalText) finalText += " ";
   let fatalError = false;
   let stopRequested = false;
   let finished = false;
@@ -533,11 +626,14 @@ function startBrowserSpeechRecognition() {
     clearTimeout(restartTimer);
     speechRecognition = null;
     const text = document.getElementById("chatInput").value.trim();
+    const shouldSend = voiceSubmitAfterStop;
+    voiceSubmitAfterStop = false;
     resetVoiceButton();
-    if (!fatalError && text) await submitChat(text);
+    if (!fatalError && shouldSend && text) await submitChat(text);
   };
 
-  recognition._sportikFinish = () => {
+  recognition._sportikFinish = (sendAfterStop = false) => {
+    voiceSubmitAfterStop = sendAfterStop;
     stopRequested = true;
     clearTimeout(restartTimer);
     if (recognition._sportikActive) {
@@ -552,7 +648,7 @@ function startBrowserSpeechRecognition() {
     button.innerHTML = STOP_ICON;
     button.setAttribute("aria-label", "Остановить запись");
     button.setAttribute("aria-pressed", "true");
-    document.getElementById("chatInput").placeholder = "Говорите спокойно… Нажмите ■, когда закончите";
+    document.getElementById("chatInput").placeholder = "■ — пауза, оранжевая стрелка — отправить";
   };
 
   recognition.onresult = event => {
@@ -592,7 +688,7 @@ function startBrowserSpeechRecognition() {
 
   try {
     recognition.start();
-    voiceTimer = setTimeout(() => recognition._sportikFinish(), 5 * 60_000);
+    voiceTimer = setTimeout(() => recognition._sportikFinish(false), 5 * 60_000);
     return true;
   } catch {
     speechRecognition = null;
@@ -601,13 +697,15 @@ function startBrowserSpeechRecognition() {
 }
 
 async function toggleVoiceRecording() {
-  if (speechRecognition) return stopVoiceRecording();
-  if (voiceRecorder?.state === "recording") return stopVoiceRecording();
+  if (speechRecognition) return stopVoiceRecording(false);
+  if (voiceRecorder?.state === "recording") return stopVoiceRecording(false);
+  if (document.getElementById("voiceBtn").classList.contains("transcribing")) return showToast("Подождите, я распознаю предыдущую запись");
   if (!cloudSession?.access_token) {
     showToast("Войдите в аккаунт, чтобы использовать голосовой ввод");
     switchPage("profile");
     return;
   }
+  voiceSubmitAfterStop = false;
   if (startBrowserSpeechRecognition()) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return showToast("Запись голоса не поддерживается этим браузером");
   try {
@@ -620,8 +718,10 @@ async function toggleVoiceRecording() {
     voiceRecorder.onstop = async () => {
       voiceStream?.getTracks().forEach(track => track.stop());
       const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || mimeType || "audio/webm" });
+      const shouldSend = voiceSubmitAfterStop;
+      voiceSubmitAfterStop = false;
       voiceRecorder = null;
-      if (blob.size > 100) await transcribeVoice(blob); else resetVoiceButton();
+      if (blob.size > 100) await transcribeVoice(blob, shouldSend); else resetVoiceButton();
     };
     voiceRecorder.start(250);
     const button = document.getElementById("voiceBtn");
@@ -629,8 +729,8 @@ async function toggleVoiceRecording() {
     button.innerHTML = STOP_ICON;
     button.setAttribute("aria-label", "Остановить запись");
     button.setAttribute("aria-pressed", "true");
-    document.getElementById("chatInput").placeholder = "Говорите… Нажмите ■ для отправки";
-    voiceTimer = setTimeout(stopVoiceRecording, 60_000);
+    document.getElementById("chatInput").placeholder = "■ — пауза, оранжевая стрелка — отправить";
+    voiceTimer = setTimeout(() => stopVoiceRecording(false), 5 * 60_000);
   } catch (error) {
     resetVoiceButton();
     showToast(error?.name === "NotAllowedError"
@@ -640,7 +740,14 @@ async function toggleVoiceRecording() {
 }
 
 function renderSavedChat() {
-  state.chat.slice(-8).forEach(item => addChatMessage(item.text, item.role, false));
+  state.chat.slice(-16).forEach(item => addChatMessage(item.text, item.role, false));
+}
+
+function startCoachInterview() {
+  if (state.chat.length || getExercises().length) return;
+  addAssistantMessage("Привет! Я задам несколько коротких вопросов и затем сам создам ваш план. Начнём: какая у вас главная цель — стать сильнее, набрать мышцы, снизить вес или поддерживать форму?");
+  renderReplyOptions(["Стать сильнее", "Набрать мышцы", "Снизить вес", "Поддерживать форму"]);
+  if (window.innerWidth <= 700) document.querySelector(".coach-panel")?.classList.add("mobile-open");
 }
 
 function setSyncStatus(label, mode = "local") {
@@ -667,7 +774,13 @@ function hideAuthGate() {
 }
 
 function maybeShowOnboarding() {
-  if (!state.onboarded && (cloudSession?.user || authGateSkipped)) {
+  if (cloudSession?.user && !state.chat.length && !getExercises().length) {
+    if (!state.onboarded) {
+      state.onboarded = true;
+      saveState();
+    }
+    startCoachInterview();
+  } else if (!state.onboarded && authGateSkipped) {
     document.getElementById("onboardingModal").classList.remove("hidden");
     document.body.style.overflow = "hidden";
   }
@@ -890,6 +1003,10 @@ function bindEvents() {
   document.getElementById("techniqueModal").addEventListener("click", event => { if (event.target.id === "techniqueModal") closeTechnique(); });
   document.getElementById("chatForm").addEventListener("submit", event => {
     event.preventDefault();
+    if (speechRecognition || voiceRecorder?.state === "recording") {
+      stopVoiceRecording(true);
+      return;
+    }
     submitChat(document.getElementById("chatInput").value);
   });
   document.getElementById("voiceBtn").addEventListener("click", toggleVoiceRecording);
@@ -908,6 +1025,14 @@ function bindEvents() {
 
   document.getElementById("saveProfileBtn").addEventListener("click", () => {
     const data = new FormData(document.getElementById("profileForm"));
+    const equipment = data.getAll("equipment");
+    const dumbbellWeight = Math.max(1, Number(data.get("dumbbellWeight")) || 5);
+    const dumbbellCount = Math.max(1, Math.min(2, Number(data.get("dumbbellCount")) || 2));
+    const equipmentNotes = [
+      equipment.includes("dumbbells") ? `${dumbbellCount} гантели по ${dumbbellWeight} кг` : "",
+      equipment.includes("bench") ? "тренировочная скамья" : "",
+      equipment.includes("bands") ? "резинки" : ""
+    ].filter(Boolean).join(", ") || "только вес собственного тела";
     state.profile = {
       ...state.profile,
       name: String(data.get("name") || "").trim(),
@@ -915,15 +1040,18 @@ function bindEvents() {
       height: Number(data.get("height")),
       weight: Number(data.get("weight")),
       level: String(data.get("level")),
+      levelConfirmed: true,
       goal: String(data.get("goal")),
-      dumbbellWeight: Math.max(1, Number(data.get("dumbbellWeight")) || 5),
-      dumbbellCount: Math.max(1, Math.min(2, Number(data.get("dumbbellCount")) || 2)),
+      dumbbellWeight,
+      dumbbellCount,
+      equipmentNotes,
+      equipmentConfirmed: true,
       notes: String(data.get("notes"))
     };
     saveState();
     renderProfile();
-    showToast(`Профиль обновлён — учтены гантели по ${state.profile.dumbbellWeight} кг`);
-    addAssistantMessage(`Запомнил оборудование: ${state.profile.dumbbellCount === 1 ? "одна гантель" : "две гантели"} по ${state.profile.dumbbellWeight} кг. Буду подбирать повторения и темп под этот вес.`);
+    showToast("Профиль и домашнее оборудование обновлены");
+    addAssistantMessage(`Запомнил домашнее оборудование: ${equipmentNotes}. Буду строить план только вокруг того, что у вас действительно есть.`);
   });
 
   document.getElementById("adaptPlanBtn").addEventListener("click", () => {

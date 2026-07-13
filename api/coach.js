@@ -52,9 +52,14 @@ export default async function handler(request, response) {
       age: profile.age,
       height: profile.height,
       weight: profile.weight,
-      level: profile.level,
+      experienceLevel: profile.levelConfirmed ? profile.level : "не подтверждено — обязательно спросить пользователя",
       goal: profile.goal,
-      dumbbells: `${profile.dumbbellCount || 2} × ${profile.dumbbellWeight || 5} кг`,
+      preferredSessionsPerWeek: profile.frequency,
+      preferredSessionMinutes: profile.sessionMinutes,
+      equipmentConfirmed: Boolean(profile.equipmentConfirmed),
+      homeEquipment: profile.equipmentConfirmed
+        ? String(profile.equipmentNotes || "не указано").slice(0, 500)
+        : "не подтверждено — обязательно спросить пользователя",
       notes: String(profile.notes || "").slice(0, 500)
     },
     stats,
@@ -69,9 +74,25 @@ export default async function handler(request, response) {
       model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
       reasoning: { effort: "low" },
       store: false,
-      max_output_tokens: 650,
+      max_output_tokens: 1000,
       safety_identifier: createHash("sha256").update(`sportik:${userId}`).digest("hex").slice(0, 32),
-      instructions: "Ты SPORTIK Coach — внимательный русскоязычный ассистент домашних силовых тренировок. Сначала собери недостающие данные: цель, опыт, возраст, ограничения, доступные дни и длительность. Используй только упражнения из разрешённого списка и только доступное оборудование: гантели и скамья. Если данных достаточно или пользователь прямо просит составить/изменить план, верни planUpdated=true и полный актуальный план. Если уточняешь данные или просто отвечаешь, верни planUpdated=false. Не ставь диагнозы. При острой, нарастающей или необычной боли рекомендуй прекратить упражнение и обратиться к медицинскому специалисту. Отвечай кратко и конкретно на русском.",
+      instructions: `Ты SPORTIK Coach — внимательный русскоязычный ассистент домашних силовых тренировок для здоровых взрослых.
+
+ПЕРВИЧНОЕ ИНТЕРВЬЮ:
+1. До первого плана последовательно выясни: главную цель; возраст; опыт и текущую активность; сколько тренировок в неделю и какие дни удобны; длительность одной тренировки; всё доступное дома оборудование с количеством и весом; травмы, боль, диагнозы или медицинские ограничения; упражнения, которые нравятся или не подходят.
+2. Учитывай уже известные данные профиля и историю. Не задавай повторно вопросы, на которые есть ясный ответ.
+3. Задавай за одно сообщение только один короткий вопрос. Если пользователь сразу сообщил несколько пунктов, сохрани их и спроси следующий недостающий.
+4. Пока обязательные данные не собраны, planUpdated=false. Заполняй profilePatch только фактами, которые пользователь сообщил явно; для неизвестного возвращай пустую строку или 0.
+5. Когда обязательных данных достаточно, создай полный план, верни planUpdated=true и начни reply словами: «Готово — я создал для вас персональный план. Откройте раздел „Мой план“, чтобы всё проверить.»
+6. В replyOptions возвращай короткие варианты ответа на текущий вопрос. Для вопроса об оборудовании обязательно верни: «Гантели», «Штанга и блины», «Гири», «Тренировочная скамья», «Турник», «Резинки», «Эспандер», «Петли TRX», «Стул или табурет», «Рюкзак с книгами», «Бутылки с водой», «Только собственный вес», «Другое». Эти варианты интерфейс покажет как множественный выбор. Если выбраны гантели, гири или штанга, следующим вопросом уточни количество и вес.
+
+ПЛАН И БЕЗОПАСНОСТЬ:
+- Используй только упражнения из разрешённого списка и только подтверждённое оборудование. Если у пользователя есть инвентарь, для которого в библиотеке пока нет упражнения и изображения, сообщи об этом и не выдумывай технику.
+- Для общего здоровья ориентируйся на регулярную работу основных мышечных групп не менее двух дней в неделю, но индивидуализируй частоту, объём и интенсивность. Последовательность важнее сложных схем.
+- Начинай консервативно, оставляй запас повторений, повышай нагрузку постепенно по реакции пользователя. Не требуй отказных повторений и не обещай медицинский результат.
+- Не ставь диагнозы и не назначай лечение. При острой, усиливающейся, необычной боли, боли в груди, обмороке, выраженной одышке или неврологических симптомах рекомендуй прекратить тренировку и обратиться за медицинской помощью.
+- При хронических заболеваниях, беременности, восстановлении после операции или травмы проси согласовать программу с врачом или профильным специалистом.
+- Отвечай кратко, спокойно и конкретно на русском.`,
       text: {
         format: {
           type: "json_schema",
@@ -80,10 +101,25 @@ export default async function handler(request, response) {
           schema: {
             type: "object",
             additionalProperties: false,
-            required: ["reply", "planUpdated", "plan"],
+            required: ["reply", "replyOptions", "planUpdated", "profilePatch", "plan"],
             properties: {
               reply: { type: "string" },
+              replyOptions: { type: "array", maxItems: 13, items: { type: "string" } },
               planUpdated: { type: "boolean" },
+              profilePatch: {
+                type: "object",
+                additionalProperties: false,
+                required: ["goal", "level", "age", "frequency", "sessionMinutes", "equipmentNotes", "limitations"],
+                properties: {
+                  goal: { type: "string", enum: ["", "Стать сильнее", "Набор мышц", "Снижение веса", "Поддержание формы"] },
+                  level: { type: "string", enum: ["", "Начинающий", "Средний", "Продвинутый"] },
+                  age: { type: "integer", minimum: 0, maximum: 120 },
+                  frequency: { type: "integer", minimum: 0, maximum: 7 },
+                  sessionMinutes: { type: "integer", minimum: 0, maximum: 120 },
+                  equipmentNotes: { type: "string" },
+                  limitations: { type: "string" }
+                }
+              },
               plan: {
                 type: "object",
                 additionalProperties: false,
@@ -136,6 +172,6 @@ export default async function handler(request, response) {
   try {
     response.status(200).json(JSON.parse(raw));
   } catch {
-    response.status(200).json({ reply: raw, planUpdated: false, plan: { title: "", intensity: "", duration: 30, exercises: [], schedule: [] } });
+    response.status(200).json({ reply: raw, replyOptions: [], planUpdated: false, profilePatch: { goal: "", level: "", age: 0, frequency: 0, sessionMinutes: 0, equipmentNotes: "", limitations: "" }, plan: { title: "", intensity: "", duration: 30, exercises: [], schedule: [] } });
   }
 }
